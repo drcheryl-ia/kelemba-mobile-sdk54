@@ -1,0 +1,1 @@
+export { TontineCard } from './TontineCard';

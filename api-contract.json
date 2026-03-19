@@ -1,0 +1,5026 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1": {
+      "get": {
+        "operationId": "AppController_getInfo_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "API root — returns service info",
+        "tags": [
+          "App"
+        ]
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "operationId": "AuthController_register_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Compte créé avec succès"
+          },
+          "409": {
+            "description": "Numéro de téléphone déjà enregistré"
+          }
+        },
+        "summary": "Créer un nouveau compte utilisateur",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/send-otp": {
+      "post": {
+        "operationId": "AuthController_sendOtp_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendOtpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP envoyé"
+          },
+          "403": {
+            "description": "Compte banni"
+          },
+          "404": {
+            "description": "Utilisateur non trouvé"
+          }
+        },
+        "summary": "Envoyer un code OTP par SMS",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/verify-otp": {
+      "post": {
+        "operationId": "AuthController_verifyOtp_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyOtpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP vérifié avec succès"
+          },
+          "401": {
+            "description": "OTP invalide ou expiré"
+          }
+        },
+        "summary": "Vérifier un code OTP",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "AuthController_login_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connexion réussie, tokens retournés"
+          },
+          "401": {
+            "description": "Identifiants incorrects"
+          },
+          "403": {
+            "description": "Compte banni ou suspendu"
+          }
+        },
+        "summary": "Connexion avec numéro de téléphone et code PIN",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh-token": {
+      "post": {
+        "operationId": "AuthController_refreshToken_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Nouveaux tokens générés"
+          },
+          "401": {
+            "description": "Refresh token invalide"
+          }
+        },
+        "summary": "Rafraîchir les tokens JWT (rotation silencieuse)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Déconnexion réussie"
+          },
+          "401": {
+            "description": "Non authentifié"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Déconnexion — révoque le refresh token",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/kyc/documents": {
+      "post": {
+        "operationId": "KycController_submitDocuments_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "documentType",
+                  "front",
+                  "selfie"
+                ],
+                "properties": {
+                  "documentType": {
+                    "type": "string",
+                    "enum": [
+                      "CNI",
+                      "PASSPORT"
+                    ],
+                    "description": "Type de document KYC soumis."
+                  },
+                  "front": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Document principal (recto CNI ou page identite du passeport)."
+                  },
+                  "back": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Verso de la CNI. Obligatoire pour CNI, facultatif pour PASSPORT."
+                  },
+                  "selfie": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Photo selfie"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documents soumis avec succÃ¨s"
+          },
+          "400": {
+            "description": "Fichiers manquants ou invalides"
+          },
+          "409": {
+            "description": "Documents dÃ©jÃ  soumis"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Soumettre les documents KYC (CNI : front/back/selfie, PASSPORT : front/selfie)",
+        "tags": [
+          "KYC"
+        ]
+      }
+    },
+    "/api/v1/kyc/status": {
+      "get": {
+        "operationId": "KycController_getStatus_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Statut KYC retournÃ©"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Consulter le statut KYC de l'utilisateur connectÃ©",
+        "tags": [
+          "KYC"
+        ]
+      }
+    },
+    "/api/v1/kyc/admin/{uid}/approve": {
+      "post": {
+        "operationId": "KycController_approveKyc_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KYC approuvÃ©"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          },
+          "409": {
+            "description": "Le statut KYC n'est pas en cours de vÃ©rification"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Approuver la vÃ©rification KYC d'un utilisateur (admin)",
+        "tags": [
+          "KYC"
+        ]
+      }
+    },
+    "/api/v1/kyc/admin/{uid}/reject": {
+      "post": {
+        "operationId": "KycController_rejectKyc_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectKycDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "KYC rejetÃ©"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          },
+          "409": {
+            "description": "Le statut KYC n'est pas en cours de vÃ©rification"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Rejeter la vÃ©rification KYC d'un utilisateur (admin)",
+        "tags": [
+          "KYC"
+        ]
+      }
+    },
+    "/api/v1/users/me/next-payment": {
+      "get": {
+        "operationId": "UsersController_getNextPayment_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextPaymentResponseDto"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Aucun paiement en attente"
+          },
+          "401": {
+            "description": "Token invalide ou expiré"
+          },
+          "403": {
+            "description": "KYC non vérifié"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Prochain paiement dû de l'utilisateur connecté",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/lookup": {
+      "get": {
+        "operationId": "UsersController_lookupByPhone_v1",
+        "parameters": [
+          {
+            "name": "phone",
+            "required": true,
+            "in": "query",
+            "description": "Numéro de téléphone au format centrafricain (+236)",
+            "schema": {
+              "example": "+23675100010",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Utilisateur trouvé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserLookupResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Format téléphone invalide."
+          },
+          "404": {
+            "description": "Utilisateur non trouvé."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Rechercher un utilisateur par téléphone (invitation nominative)",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "operationId": "UsersController_getMe_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Profil retourné",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token absent ou invalide"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Profil de l'utilisateur connecté",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/upgrade-account": {
+      "patch": {
+        "operationId": "UsersController_upgradeAccount_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpgradeAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Profil mis à jour après upgrade",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token absent ou invalide"
+          },
+          "403": {
+            "description": "KYC non vérifié"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          },
+          "409": {
+            "description": "Déjà ORGANISATEUR"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Passer en ORGANISATEUR (irréversible)",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/tontines/invitation/{uid}/preview": {
+      "get": {
+        "operationId": "TontinesController_getInvitationPreview_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Infos publiques de la tontine."
+          },
+          "404": {
+            "description": "Tontine non disponible."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Aperçu public d'une tontine via lien d'invitation",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines": {
+      "post": {
+        "operationId": "TontinesController_create_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTontineDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tontine créée avec succès."
+          },
+          "400": {
+            "description": "Données de création invalides."
+          },
+          "403": {
+            "description": "KYC non vérifié ou score insuffisant."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Créer une nouvelle tontine",
+        "tags": [
+          "Tontines"
+        ]
+      },
+      "get": {
+        "operationId": "TontinesController_findAll_v1",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par statut",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DRAFT",
+                "ACTIVE",
+                "PAUSED",
+                "COMPLETED",
+                "CANCELLED"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Numéro de page",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Nombre d'éléments par page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste paginée des tontines de l'utilisateur."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Lister mes tontines (paginé)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/me": {
+      "get": {
+        "operationId": "TontinesController_getMyTontines_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Tontines créées ou rejointes par l'utilisateur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyTontinesResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non authentifié"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Tontines de l'utilisateur connecté (créées + rejointes)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/invitations/received": {
+      "get": {
+        "operationId": "TontinesController_getMyInvitations_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Liste des invitations nominatives en attente."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Invitations nominatives reçues (à accepter ou refuser)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/join-requests": {
+      "post": {
+        "operationId": "TontinesController_createJoinRequest_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJoinRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Demande d'adhésion créée, en attente de validation par l'organisateur."
+          },
+          "400": {
+            "description": "Tontine pleine."
+          },
+          "404": {
+            "description": "Tontine introuvable ou non joignable."
+          },
+          "409": {
+            "description": "Déjà membre ou demande en attente."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Créer une demande d'adhésion via lien/QR partagé",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/rotation/shuffle": {
+      "post": {
+        "operationId": "TontinesController_shuffleRotation_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rotation mélangée avec succès. Retourne les slots multi-parts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotationShuffleReorderResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Seul le créateur peut effectuer le tirage au sort."
+          },
+          "409": {
+            "description": "La tontine doit être en brouillon."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Tirage au sort de la rotation (créateur, tontine DRAFT)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/rotation/reorder": {
+      "patch": {
+        "operationId": "TontinesController_reorderRotation_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderRotationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rotation réordonnée avec succès. Retourne les slots multi-parts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotationShuffleReorderResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "orderedMemberUids invalide (doublons, omissions) ou ORDERED_MEMBER_UIDS_NOT_SUPPORTED_FOR_MULTI_PARTS si multi-parts."
+          },
+          "403": {
+            "description": "Seul le créateur peut réordonner."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Réordonnancement manuel de la rotation (créateur, tontine DRAFT)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/rotation/swap-requests": {
+      "get": {
+        "operationId": "TontinesController_getSwapRequests_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des demandes d'échange (membre ou créateur)."
+          },
+          "403": {
+            "description": "Accès non autorisé."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Lister les demandes d'échange de position",
+        "tags": [
+          "Tontines"
+        ]
+      },
+      "post": {
+        "operationId": "TontinesController_createSwapRequest_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSwapRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Demande d'échange créée."
+          },
+          "409": {
+            "description": "Une demande PENDING existe déjà."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Créer une demande d'échange de position (membre ACTIVE)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/rotation/swap-requests/{requestUid}": {
+      "patch": {
+        "operationId": "TontinesController_decideSwapRequest_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "requestUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la demande",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Décision enregistrée."
+          },
+          "403": {
+            "description": "Seul le créateur peut décider."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Valider ou refuser une demande d'échange (créateur uniquement)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/members/{memberUid}/approve": {
+      "patch": {
+        "operationId": "TontinesController_approveMember_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la membership PENDING",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Adhésion approuvée."
+          },
+          "400": {
+            "description": "Demande non approuvable."
+          },
+          "403": {
+            "description": "Seul l'organisateur peut approuver."
+          },
+          "404": {
+            "description": "Membership introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Approuver une demande d'adhésion (organisateur uniquement)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/members/{memberUid}/reject": {
+      "patch": {
+        "operationId": "TontinesController_rejectMemberByOrganizer_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la membership PENDING",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Demande refusée."
+          },
+          "400": {
+            "description": "Invitation non en attente."
+          },
+          "403": {
+            "description": "Seul l'organisateur peut refuser."
+          },
+          "404": {
+            "description": "Membership introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Refuser une demande d'adhésion (organisateur uniquement)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/invitations/pending": {
+      "get": {
+        "operationId": "TontinesController_getPendingInvitations_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Demandes JOIN_REQUEST en attente d'approbation. N'inclut pas les invitations nominatives (INVITE)."
+          },
+          "403": {
+            "description": "Seul l'organisateur peut consulter."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Demandes d'adhésion via lien/QR (organisateur uniquement)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/invite-link": {
+      "get": {
+        "operationId": "TontinesController_getInviteLink_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lien d'invitation retourné."
+          },
+          "403": {
+            "description": "Non membre de cette tontine."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Lien d'invitation pour une tontine",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}/rotation": {
+      "get": {
+        "operationId": "TontinesController_getRotation_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cycles ordonnés avec bénéficiaires et progression.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TontineRotationResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non membre de cette tontine."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Rotation complète d'une tontine",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{uid}": {
+      "get": {
+        "operationId": "TontinesController_findOne_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Détail complet de la tontine avec membres et cycles."
+          },
+          "403": {
+            "description": "L'utilisateur n'est pas membre de cette tontine."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Détail d'une tontine",
+        "tags": [
+          "Tontines"
+        ]
+      },
+      "patch": {
+        "operationId": "TontinesController_update_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTontineDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tontine modifiée avec succès."
+          },
+          "403": {
+            "description": "Seul le créateur peut modifier la tontine."
+          },
+          "409": {
+            "description": "La tontine a déjà démarré."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Modifier une tontine (avant démarrage uniquement)",
+        "tags": [
+          "Tontines"
+        ]
+      },
+      "delete": {
+        "operationId": "TontinesController_cancel_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tontine annulée avec succès."
+          },
+          "403": {
+            "description": "Seul le créateur peut annuler la tontine."
+          },
+          "409": {
+            "description": "Des cycles actifs ou terminés empêchent l'annulation."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Annuler une tontine (si aucun cycle actif)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
+    "/api/v1/tontines/{tontineUid}/members/invite": {
+      "post": {
+        "operationId": "MembersController_invite_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMemberDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Invitation envoyée avec succès."
+          },
+          "403": {
+            "description": "KYC non vérifié ou l'inviteur n'est pas membre."
+          },
+          "404": {
+            "description": "Tontine ou candidat introuvable."
+          },
+          "409": {
+            "description": "Le candidat est déjà membre."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Inviter un membre par numéro de téléphone",
+        "tags": [
+          "Tontines — Membres"
+        ]
+      }
+    },
+    "/api/v1/tontines/{tontineUid}/members/accept": {
+      "post": {
+        "operationId": "MembersController_acceptInvite_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Invitation acceptée, membre actif."
+          },
+          "404": {
+            "description": "Tontine ou invitation introuvable."
+          },
+          "409": {
+            "description": "Invitation déjà traitée."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Accepter une invitation (signature numérique horodatée)",
+        "tags": [
+          "Tontines — Membres"
+        ]
+      }
+    },
+    "/api/v1/tontines/{tontineUid}/members/reject": {
+      "post": {
+        "operationId": "MembersController_rejectInvite_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitation refusée."
+          },
+          "404": {
+            "description": "Tontine ou invitation introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Refuser une invitation",
+        "tags": [
+          "Tontines — Membres"
+        ]
+      }
+    },
+    "/api/v1/tontines/{tontineUid}/members": {
+      "get": {
+        "operationId": "MembersController_getMembers_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des membres avec résumé des paiements."
+          },
+          "403": {
+            "description": "L'utilisateur n'est pas membre de cette tontine."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Liste des membres avec statut de paiements",
+        "tags": [
+          "Tontines — Membres"
+        ]
+      }
+    },
+    "/api/v1/notifications/devices": {
+      "post": {
+        "description": "Enregistre le token Firebase Cloud Messaging de l'appareil pour recevoir les push notifications.",
+        "operationId": "NotificationsController_registerDevice_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDeviceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token enregistré"
+          },
+          "400": {
+            "description": "Données invalides"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Enregistrer un token FCM",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/devices/{tokenUid}": {
+      "delete": {
+        "description": "Retire un appareil de la liste des appareils recevant les push.",
+        "operationId": "NotificationsController_unregisterDevice_v1",
+        "parameters": [
+          {
+            "name": "tokenUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du token FCM",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Token supprimé"
+          },
+          "404": {
+            "description": "Token introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Supprimer un token FCM",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/unread-count": {
+      "get": {
+        "description": "Retourne le nombre de notifications non lues pour l'utilisateur connecté.",
+        "operationId": "NotificationsController_getUnreadCount_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Nombre de non-lues"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Nombre de notifications non lues",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{uid}/read": {
+      "patch": {
+        "description": "Marque la notification comme lue. Seul le propriétaire peut effectuer cette action.",
+        "operationId": "NotificationsController_markAsRead_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la notification",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Notification marquée lue"
+          },
+          "400": {
+            "description": "Notification ne vous appartient pas"
+          },
+          "404": {
+            "description": "Notification introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Marquer une notification comme lue",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "description": "Retourne la liste paginée des notifications de l'utilisateur connecté.",
+        "operationId": "NotificationsController_getNotifications_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Numéro de page (commence à 1)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "description": "Nombre d'éléments par page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des notifications"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Liste des notifications",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/cycles/initialize/{tontineUid}": {
+      "post": {
+        "operationId": "CyclesController_initialize_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Cycles créés."
+          },
+          "400": {
+            "description": "Pas assez de membres actifs."
+          },
+          "403": {
+            "description": "Seul le créateur peut initialiser les cycles."
+          },
+          "409": {
+            "description": "Cycles déjà initialisés."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Initialiser les cycles d'une tontine",
+        "tags": [
+          "Cycles"
+        ]
+      }
+    },
+    "/api/v1/cycles/current/{tontineUid}": {
+      "get": {
+        "operationId": "CyclesController_getCurrent_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cycle ACTIVE ou PAYOUT_IN_PROGRESS ou PENDING."
+          },
+          "204": {
+            "description": "Aucun cycle actif ou à venir."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Cycle courant d'une tontine",
+        "tags": [
+          "Cycles"
+        ]
+      }
+    },
+    "/api/v1/cycles/{cycleUid}/beneficiary": {
+      "get": {
+        "operationId": "CyclesController_getBeneficiary_v1",
+        "parameters": [
+          {
+            "name": "cycleUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du cycle",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Informations du bénéficiaire."
+          },
+          "404": {
+            "description": "Cycle introuvable ou bénéficiaire non assigné."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Obtenir le bénéficiaire d'un cycle",
+        "tags": [
+          "Cycles"
+        ]
+      }
+    },
+    "/api/v1/cycles/{cycleUid}/completion": {
+      "get": {
+        "operationId": "CyclesController_checkCompletion_v1",
+        "parameters": [
+          {
+            "name": "cycleUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du cycle",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Statut de complétion avec membres défaillants."
+          },
+          "404": {
+            "description": "Cycle introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Vérifier la complétion d'un cycle",
+        "tags": [
+          "Cycles"
+        ]
+      }
+    },
+    "/api/v1/cycles/{cycleUid}/payout": {
+      "post": {
+        "operationId": "CyclesController_triggerPayout_v1",
+        "parameters": [
+          {
+            "name": "cycleUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du cycle",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versement déclenché (COMPLETED ou DELAYED)."
+          },
+          "403": {
+            "description": "Seul le créateur peut déclencher le versement."
+          },
+          "409": {
+            "description": "Le cycle n'est pas ACTIVE ou un versement est déjà en cours."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Déclencher le versement d'un cycle",
+        "tags": [
+          "Cycles"
+        ]
+      }
+    },
+    "/api/v1/score/me": {
+      "get": {
+        "operationId": "ScoreController_getMe_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Score et historique retournés",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token absent ou invalide"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Score Kelemba et historique des événements de l'utilisateur connecté",
+        "tags": [
+          "Score"
+        ]
+      }
+    },
+    "/api/v1/payments/initiate": {
+      "post": {
+        "description": "Crée un paiement via Orange Money ou Telecel Money. Idempotence obligatoire via le champ idempotencyKey (UUID v4).",
+        "operationId": "PaymentsController_initiatePayment_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiatePaymentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Paiement initié avec succès"
+          },
+          "400": {
+            "description": "Données invalides ou montant incorrect"
+          },
+          "403": {
+            "description": "KYC non vérifié ou non-membre"
+          },
+          "404": {
+            "description": "Cycle introuvable"
+          },
+          "409": {
+            "description": "Paiement en cours ou cotisation complète"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Initier une cotisation pour un cycle de tontine",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/my-history": {
+      "get": {
+        "description": "Retourne la liste des paiements de l'utilisateur connecté, avec pagination et filtre optionnel par statut.",
+        "operationId": "PaymentsController_getMyHistory_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Numéro de page (commence à 1)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "description": "Nombre d'éléments par page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par statut de paiement",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "PROCESSING",
+                "COMPLETED",
+                "FAILED",
+                "REFUNDED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historique retourné"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Historique paginé de mes paiements",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/{id}/status": {
+      "get": {
+        "description": "Retourne le détail et le statut actuel d'un paiement.",
+        "operationId": "PaymentsController_getPaymentStatus_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "UUID du paiement",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Statut retourné"
+          },
+          "403": {
+            "description": "Non autorisé"
+          },
+          "404": {
+            "description": "Paiement introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Consulter le statut d'un paiement",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/callbacks/orange": {
+      "post": {
+        "description": "Endpoint de callback Orange Money. Vérifie la signature HMAC-SHA256 avant traitement.",
+        "operationId": "PaymentsController_handleOrangeWebhook_v1",
+        "parameters": [
+          {
+            "name": "x-webhook-signature",
+            "required": true,
+            "in": "header",
+            "description": "Signature HMAC-SHA256 du body",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook traité"
+          },
+          "401": {
+            "description": "Signature invalide"
+          }
+        },
+        "summary": "Webhook Orange Money",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/callbacks/telecel": {
+      "post": {
+        "description": "Endpoint de callback Telecel Money. Vérifie la signature HMAC-SHA256 du body avant traitement.",
+        "operationId": "PaymentsController_handleTelecelWebhook_v1",
+        "parameters": [
+          {
+            "name": "x-webhook-signature",
+            "required": true,
+            "in": "header",
+            "description": "Signature HMAC-SHA256 du body",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook traité"
+          },
+          "401": {
+            "description": "Signature invalide"
+          }
+        },
+        "summary": "Webhook Telecel Money",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/reports/tontines/{uid}/summary": {
+      "get": {
+        "operationId": "ReportsController_getTontineSummary_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Résumé tontine"
+          },
+          "403": {
+            "description": "Accès refusé"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Rapport complet d'une tontine (membre uniquement)",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/v1/reports/users/{uid}/certificate": {
+      "get": {
+        "operationId": "ReportsController_getCertificate_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fichier PDF"
+          },
+          "403": {
+            "description": "Accès refusé"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Télécharger le certificat PDF de participation (KYC, tontines, score, ponctualité, cachet SHA-256)",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/v1/reports/admin/transactions": {
+      "get": {
+        "operationId": "ReportsController_getTransactionJournal_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Numéro de page (commence à 1)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "description": "Nombre d'éléments par page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "startDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de début (ISO 8601)",
+            "schema": {
+              "example": "2026-01-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de fin (ISO 8601)",
+            "schema": {
+              "example": "2026-12-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par UID utilisateur",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tontineUid",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par UID tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par statut de paiement",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "PROCESSING",
+                "COMPLETED",
+                "FAILED",
+                "REFUNDED"
+              ]
+            }
+          },
+          {
+            "name": "provider",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par provider de paiement",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ORANGE_MONEY",
+                "TELECEL_MONEY",
+                "SYSTEM"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste paginée des transactions"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Journal des transactions (admin)",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/v1/reports/admin/kpis": {
+      "get": {
+        "operationId": "ReportsController_getPlatformKpis_v1",
+        "parameters": [
+          {
+            "name": "startDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de début pour les agrégats (ISO 8601)",
+            "schema": {
+              "example": "2026-01-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de fin pour les agrégats (ISO 8601)",
+            "schema": {
+              "example": "2026-12-31",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KPIs plateforme"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "KPIs globaux de la plateforme (admin)",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "operationId": "AdminController_getUsers_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "SUSPENDED",
+                "BANNED"
+              ]
+            }
+          },
+          {
+            "name": "kycStatus",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "SUBMITTED",
+                "UNDER_REVIEW",
+                "VERIFIED",
+                "REJECTED"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Recherche par nom ou téléphone",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des utilisateurs"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Liste paginée des utilisateurs avec filtres",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{uid}": {
+      "get": {
+        "operationId": "AdminController_getUserProfile_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profil utilisateur"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Profil complet d'un utilisateur",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{uid}/suspend": {
+      "patch": {
+        "operationId": "AdminController_suspendUser_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Utilisateur suspendu"
+          },
+          "403": {
+            "description": "Accès refusé"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Suspendre un utilisateur",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{uid}/ban": {
+      "patch": {
+        "operationId": "AdminController_banUser_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminBanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Utilisateur banni"
+          },
+          "403": {
+            "description": "Accès refusé"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Bannir un utilisateur",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{uid}/rehabilitate": {
+      "patch": {
+        "operationId": "AdminController_rehabilitateUser_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Utilisateur réhabilité"
+          },
+          "403": {
+            "description": "Accès refusé ou conditions non remplies"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Réhabiliter un utilisateur banni",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/tontines": {
+      "get": {
+        "operationId": "AdminController_getTontines_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DRAFT",
+                "ACTIVE",
+                "PAUSED",
+                "COMPLETED",
+                "CANCELLED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des tontines"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Supervision globale des tontines",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kpis": {
+      "get": {
+        "operationId": "AdminController_getKpis_v1",
+        "parameters": [
+          {
+            "name": "startDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de début pour les agrégats (ISO 8601)",
+            "schema": {
+              "example": "2026-01-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de fin pour les agrégats (ISO 8601)",
+            "schema": {
+              "example": "2026-12-31",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KPIs globaux"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Dashboard KPIs plateforme",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/audit-logs": {
+      "get": {
+        "operationId": "AdminController_getAuditLogs_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par action",
+            "schema": {
+              "example": "USER_BANNED",
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityType",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par type d'entité",
+            "schema": {
+              "example": "User",
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par UID utilisateur (acteur)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de début (ISO 8601)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "required": false,
+            "in": "query",
+            "description": "Date de fin (ISO 8601)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des logs d'audit"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Journal des actions avec filtres",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/disputes": {
+      "post": {
+        "operationId": "DisputeController_createDispute_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDisputeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Litige créé"
+          },
+          "404": {
+            "description": "Utilisateur ou tontine introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Créer un litige entre membres",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/disputes/{uid}": {
+      "get": {
+        "operationId": "DisputeController_getDisputeById_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Détail du litige"
+          },
+          "404": {
+            "description": "Litige introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Détail d'un litige",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/disputes/{uid}/resolve": {
+      "patch": {
+        "operationId": "DisputeController_resolveDispute_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDisputeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Litige résolu"
+          },
+          "403": {
+            "description": "Accès refusé"
+          },
+          "404": {
+            "description": "Litige introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Résoudre un litige (admin)",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/disputes/{uid}/status": {
+      "patch": {
+        "operationId": "DisputeController_changeDisputeStatus_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeDisputeStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Statut modifié"
+          },
+          "403": {
+            "description": "Accès refusé"
+          },
+          "404": {
+            "description": "Litige introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Modifier le statut d'un litige (admin)",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc/pending": {
+      "get": {
+        "operationId": "AdminKycController_getPending_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Liste des dossiers en attente"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Liste des dossiers KYC en attente avec URLs prÃ©-signÃ©es S3",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc/{userId}/document/{type}": {
+      "get": {
+        "operationId": "AdminKycController_getDocument_v1",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "description": "UID de l'utilisateur",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": true,
+            "in": "path",
+            "description": "Type de document",
+            "schema": {
+              "enum": [
+                "front",
+                "back",
+                "selfie"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document image en stream"
+          },
+          "400": {
+            "description": "Type de document invalide"
+          },
+          "404": {
+            "description": "Utilisateur ou document introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Stream du document KYC dÃ©chiffrÃ© (front, back optionnel, selfie)",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc/{userId}/approve": {
+      "patch": {
+        "operationId": "AdminKycController_approve_v1",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "description": "UID de l'utilisateur",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KYC approuvÃ©"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          },
+          "409": {
+            "description": "Dossier KYC non en cours de vÃ©rification"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Approuver le KYC d'un utilisateur",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/kyc/{userId}/reject": {
+      "patch": {
+        "operationId": "AdminKycController_reject_v1",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "description": "UID de l'utilisateur",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminRejectKycDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "KYC rejetÃ©"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          },
+          "409": {
+            "description": "Dossier KYC non en cours de vÃ©rification"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Rejeter le KYC d'un utilisateur avec raison",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "HealthController_check_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The Health Check is successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {},
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Health Check is not successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "error"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        },
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Health check endpoint — PostgreSQL, Redis, Orange Money, Telecel Money, S3",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/metrics/platform": {
+      "get": {
+        "operationId": "MetricsController_getPlatformMetrics_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Métriques plateforme"
+          },
+          "403": {
+            "description": "Accès réservé SUPER_ADMIN"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "KPIs plateforme — utilisateurs, tontines, transactions, score moyen, ponctualité",
+        "tags": [
+          "Metrics"
+        ]
+      }
+    },
+    "/api/v1/savings": {
+      "post": {
+        "operationId": "SavingsController_create_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSavingsTontineDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tontine épargne créée avec succès."
+          },
+          "400": {
+            "description": "Données invalides."
+          },
+          "403": {
+            "description": "KYC non vérifié."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Créer une tontine Épargne",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      },
+      "get": {
+        "operationId": "SavingsController_listMySavingsTontines_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Liste des tontines épargne."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Lister mes tontines Épargne",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}": {
+      "get": {
+        "operationId": "SavingsController_getSavingsDetail_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Détail de la tontine."
+          },
+          "403": {
+            "description": "Non membre."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Détail d'une tontine Épargne",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/join": {
+      "post": {
+        "operationId": "SavingsController_join_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Adhésion réussie."
+          },
+          "403": {
+            "description": "KYC non vérifié ou score insuffisant."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          },
+          "409": {
+            "description": "Déjà membre ou nombre max atteint."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Rejoindre une tontine Épargne",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/dashboard": {
+      "get": {
+        "operationId": "SavingsController_getDashboard_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tableau de bord."
+          },
+          "403": {
+            "description": "Non membre."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Tableau de bord collectif",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/my-balance": {
+      "get": {
+        "operationId": "SavingsController_getMyBalance_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Solde et projection."
+          },
+          "404": {
+            "description": "Non membre."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Mon solde personnel",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/contribute": {
+      "post": {
+        "operationId": "SavingsController_contribute_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContributeSavingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Contribution enregistrée."
+          },
+          "400": {
+            "description": "Période fermée ou montant insuffisant."
+          },
+          "403": {
+            "description": "KYC non vérifié ou non membre."
+          },
+          "404": {
+            "description": "Tontine ou période introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Verser une contribution",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/periods": {
+      "get": {
+        "operationId": "SavingsController_listPeriods_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des périodes."
+          },
+          "403": {
+            "description": "Non membre."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Lister les périodes",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/periods/{periodUid}/contributions": {
+      "get": {
+        "operationId": "SavingsController_listMyContributions_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "periodUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la période",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des contributions."
+          },
+          "403": {
+            "description": "Non membre."
+          },
+          "404": {
+            "description": "Tontine ou période introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Mes contributions sur une période",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/withdraw": {
+      "post": {
+        "operationId": "SavingsController_withdraw_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestWithdrawalDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Demande de retrait enregistrée."
+          },
+          "403": {
+            "description": "KYC non vérifié ou non membre."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          },
+          "409": {
+            "description": "Tontine non débloquée ou retrait en cours."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Demander un retrait",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/members/{memberUid}/suspend": {
+      "post": {
+        "operationId": "SavingsController_suspendMember_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du membre",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendSavingsMemberDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Membre suspendu."
+          },
+          "403": {
+            "description": "Non créateur."
+          },
+          "404": {
+            "description": "Tontine ou membre introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Suspendre un membre (créateur uniquement)",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/members/{memberUid}/early-exit": {
+      "post": {
+        "operationId": "SavingsController_requestEarlyExit_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du membre (soi-même)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Demande enregistrée."
+          },
+          "403": {
+            "description": "Tentative sur un autre membre."
+          },
+          "404": {
+            "description": "Tontine ou membre introuvable."
+          },
+          "409": {
+            "description": "Tontine déjà débloquée."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Demander une sortie anticipée",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Kelemba API",
+    "description": "API backend pour la gestion de tontines numériques — RCA",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "JWT-auth": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "example": "+23675100010",
+            "description": "Numéro de téléphone centrafricain (+236 suivi de 8 chiffres)"
+          },
+          "fullName": {
+            "type": "string",
+            "example": "Marie Kanga",
+            "description": "Nom complet (2 à 150 caractères)"
+          },
+          "pin": {
+            "type": "string",
+            "example": "123456",
+            "description": "Code PIN à 6 chiffres"
+          },
+          "accountType": {
+            "type": "string",
+            "example": "MEMBRE",
+            "description": "Type de compte — MEMBRE (invitation) ou ORGANISATEUR (création directe)",
+            "enum": [
+              "MEMBRE",
+              "ORGANISATEUR"
+            ]
+          },
+          "invitationTontineUid": {
+            "type": "string",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "description": "UID de la tontine issue du lien ou QR Code d'invitation. Obligatoire si accountType=MEMBRE et inscription via invitation."
+          }
+        },
+        "required": [
+          "phone",
+          "fullName",
+          "pin"
+        ]
+      },
+      "SendOtpDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "example": "+23675100010",
+            "description": "Numéro de téléphone centrafricain"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "description": "Clé d'idempotence UUID v4 pour éviter les envois en double"
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      },
+      "VerifyOtpDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "example": "+23675100010",
+            "description": "Numéro de téléphone centrafricain"
+          },
+          "otp": {
+            "type": "string",
+            "example": "482917",
+            "description": "Code OTP à 6 chiffres reçu par SMS"
+          }
+        },
+        "required": [
+          "phone",
+          "otp"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "example": "+23675100010",
+            "description": "Numéro de téléphone centrafricain"
+          },
+          "pin": {
+            "type": "string",
+            "example": "123456",
+            "description": "Code PIN à 6 chiffres"
+          }
+        },
+        "required": [
+          "phone",
+          "pin"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "example": "eyJhbGciOiJSUzI1NiIs...",
+            "description": "Refresh token JWT"
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "RejectKycDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Raison du rejet de la vérification KYC",
+            "example": "Document illisible, veuillez soumettre une photo plus nette.",
+            "minLength": 5,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "NextPaymentResponseDto": {
+        "type": "object",
+        "properties": {
+          "tontineUid": {
+            "type": "string",
+            "description": "UUID de la tontine"
+          },
+          "tontineName": {
+            "type": "string",
+            "description": "Nom de la tontine"
+          },
+          "cycleUid": {
+            "type": "string",
+            "description": "UUID du cycle"
+          },
+          "cycleNumber": {
+            "type": "number",
+            "description": "Numéro du cycle"
+          },
+          "amountDue": {
+            "type": "number",
+            "description": "Montant dû (FCFA)",
+            "example": 5000
+          },
+          "penaltyAmount": {
+            "type": "number",
+            "description": "Pénalité (FCFA)",
+            "example": 0
+          },
+          "totalDue": {
+            "type": "number",
+            "description": "Total dû (FCFA)",
+            "example": 5000
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "Date d'échéance (YYYY-MM-DD)",
+            "example": "2026-03-15"
+          },
+          "paymentStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "COMPLETED",
+              "FAILED",
+              "REFUNDED"
+            ]
+          }
+        },
+        "required": [
+          "tontineUid",
+          "tontineName",
+          "cycleUid",
+          "cycleNumber",
+          "amountDue",
+          "penaltyAmount",
+          "totalDue",
+          "dueDate",
+          "paymentStatus"
+        ]
+      },
+      "UserLookupResponseDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UID de l'utilisateur"
+          },
+          "fullName": {
+            "type": "string",
+            "description": "Nom complet"
+          },
+          "phoneMasked": {
+            "type": "string",
+            "description": "Téléphone masqué (ex: +236****010)"
+          },
+          "kelembScore": {
+            "type": "number",
+            "description": "Score Kelemba (0-1000)"
+          },
+          "kycStatus": {
+            "type": "string",
+            "description": "Statut KYC",
+            "enum": [
+              "PENDING",
+              "SUBMITTED",
+              "UNDER_REVIEW",
+              "VERIFIED",
+              "REJECTED"
+            ]
+          }
+        },
+        "required": [
+          "uid",
+          "fullName",
+          "phoneMasked",
+          "kelembScore",
+          "kycStatus"
+        ]
+      },
+      "UserProfileResponseDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UUID v4 de l'utilisateur",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Numéro de téléphone E.164",
+            "example": "+23675100010"
+          },
+          "fullName": {
+            "type": "string",
+            "description": "Nom complet",
+            "example": "Marie Nzinga"
+          },
+          "role": {
+            "type": "string",
+            "description": "Rôle utilisateur",
+            "enum": [
+              "USER",
+              "GESTIONNAIRE",
+              "ADMIN",
+              "SUPER_ADMIN"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "Statut du compte",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED",
+              "BANNED"
+            ]
+          },
+          "kycStatus": {
+            "type": "string",
+            "description": "Statut KYC",
+            "enum": [
+              "PENDING",
+              "SUBMITTED",
+              "UNDER_REVIEW",
+              "VERIFIED",
+              "REJECTED"
+            ]
+          },
+          "kelembScore": {
+            "type": "number",
+            "description": "Score Kelemba (0–1000)",
+            "minimum": 0,
+            "maximum": 1000,
+            "example": 720
+          },
+          "accountType": {
+            "type": "string",
+            "description": "Type de compte (MEMBRE ou ORGANISATEUR)",
+            "enum": [
+              "MEMBRE",
+              "ORGANISATEUR"
+            ]
+          },
+          "lastLoginAt": {
+            "type": "object",
+            "description": "Dernière connexion (ISO 8601)",
+            "nullable": true,
+            "example": "2026-03-10T08:22:00.000Z"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Date de création (ISO 8601)",
+            "example": "2026-01-15T10:00:00.000Z"
+          },
+          "tontinesCount": {
+            "type": "number",
+            "description": "Nombre de tontines actives (membership ACTIVE)",
+            "example": 2
+          },
+          "activeAsMember": {
+            "type": "boolean",
+            "description": "A au moins un membership ACTIVE",
+            "example": true
+          }
+        },
+        "required": [
+          "uid",
+          "phone",
+          "fullName",
+          "role",
+          "status",
+          "kycStatus",
+          "kelembScore",
+          "accountType",
+          "lastLoginAt",
+          "createdAt",
+          "tontinesCount",
+          "activeAsMember"
+        ]
+      },
+      "UpgradeAccountDto": {
+        "type": "object",
+        "properties": {
+          "confirmed": {
+            "type": "boolean",
+            "description": "Confirmation explicite de la demande de passage en ORGANISATEUR",
+            "example": true
+          }
+        },
+        "required": [
+          "confirmed"
+        ]
+      },
+      "CreateTontineDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Nom de la tontine",
+            "example": "Tontine Solidarité Bangui",
+            "minLength": 3,
+            "maxLength": 100
+          },
+          "amountPerShare": {
+            "type": "number",
+            "description": "Montant par part en FCFA (minimum 500 FCFA)",
+            "example": 5000,
+            "minimum": 500
+          },
+          "frequency": {
+            "type": "string",
+            "description": "Fréquence des cotisations",
+            "enum": [
+              "DAILY",
+              "WEEKLY",
+              "BIWEEKLY",
+              "MONTHLY"
+            ],
+            "example": "MONTHLY"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Date de début (ISO 8601), doit être dans le futur",
+            "example": "2026-04-01"
+          },
+          "totalCycles": {
+            "type": "number",
+            "description": "Nombre total de cycles (1 à 50). Pour ROTATIVE : ignoré à la création, calculé automatiquement à l'activation à partir des parts actives. Pour les autres types : peut être fourni.",
+            "example": 12,
+            "minimum": 1,
+            "maximum": 50
+          },
+          "rotationMode": {
+            "type": "string",
+            "description": "Mode de rotation : ARRIVAL (ordre d'arrivée), RANDOM (tirage au sort), MANUAL (réordonnancement manuel)",
+            "enum": [
+              "ARRIVAL",
+              "RANDOM",
+              "MANUAL"
+            ],
+            "default": "ARRIVAL"
+          },
+          "rules": {
+            "type": "object",
+            "description": "Règles personnalisées (JSON libre)",
+            "example": {
+              "penaltyRate": 5,
+              "gracePeriodDays": 3
+            }
+          }
+        },
+        "required": [
+          "name",
+          "amountPerShare",
+          "frequency",
+          "startDate"
+        ]
+      },
+      "MyTontineItemDto": {
+        "type": "object",
+        "properties": {
+          "tontineUid": {
+            "type": "string",
+            "description": "UUID de la tontine"
+          },
+          "tontineName": {
+            "type": "string",
+            "description": "Nom de la tontine"
+          },
+          "tontineStatus": {
+            "type": "string",
+            "description": "Statut de la tontine",
+            "enum": [
+              "DRAFT",
+              "ACTIVE",
+              "PAUSED",
+              "COMPLETED",
+              "CANCELLED"
+            ]
+          },
+          "amountPerShare": {
+            "type": "number",
+            "description": "Montant par part (FCFA)"
+          },
+          "frequency": {
+            "type": "string",
+            "description": "Fréquence des cotisations",
+            "enum": [
+              "DAILY",
+              "WEEKLY",
+              "BIWEEKLY",
+              "MONTHLY"
+            ]
+          },
+          "totalCycles": {
+            "type": "number",
+            "description": "Nombre total de cycles"
+          },
+          "memberCount": {
+            "type": "number",
+            "description": "Nombre de membres actifs"
+          },
+          "userRole": {
+            "type": "string",
+            "description": "Rôle de l'utilisateur",
+            "enum": [
+              "CREATOR",
+              "MEMBER"
+            ]
+          },
+          "userSharesCount": {
+            "type": "number",
+            "description": "Nombre de parts de l'utilisateur"
+          },
+          "membershipStatus": {
+            "type": "string",
+            "description": "Statut de la membership de l'utilisateur dans cette tontine",
+            "enum": [
+              "ACTIVE",
+              "PENDING"
+            ],
+            "example": "ACTIVE"
+          },
+          "isCreator": {
+            "type": "boolean",
+            "description": "L'utilisateur est-il le créateur de la tontine"
+          },
+          "canInvite": {
+            "type": "boolean",
+            "description": "Le créateur peut-il inviter des membres (DRAFT ou ACTIVE uniquement)"
+          },
+          "currentCycle": {
+            "type": "object",
+            "description": "Cycle courant ou prochain",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Date de début (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "tontineUid",
+          "tontineName",
+          "tontineStatus",
+          "amountPerShare",
+          "frequency",
+          "totalCycles",
+          "memberCount",
+          "userRole",
+          "userSharesCount",
+          "membershipStatus",
+          "isCreator",
+          "canInvite",
+          "currentCycle",
+          "startDate"
+        ]
+      },
+      "MyTontinesResponseDto": {
+        "type": "object",
+        "properties": {
+          "tontines": {
+            "description": "Liste des tontines de l'utilisateur",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyTontineItemDto"
+            }
+          }
+        },
+        "required": [
+          "tontines"
+        ]
+      },
+      "CreateJoinRequestDto": {
+        "type": "object",
+        "properties": {
+          "sharesCount": {
+            "type": "number",
+            "description": "Nombre de parts souhaitées (1 à 5, défaut 1)",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 1
+          }
+        }
+      },
+      "RotationSlotResponseDto": {
+        "type": "object",
+        "properties": {
+          "slotNumber": {
+            "type": "number",
+            "description": "Numéro du slot (1-based)",
+            "example": 1
+          },
+          "membershipUid": {
+            "type": "string",
+            "description": "UUID du membership assigné à ce slot",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "memberUid": {
+            "type": "string",
+            "description": "UUID de l'utilisateur (membre)",
+            "example": "660e8400-e29b-41d4-a716-446655440001"
+          },
+          "fullName": {
+            "type": "string",
+            "description": "Nom complet du membre",
+            "example": "Marie Nzinga"
+          }
+        },
+        "required": [
+          "slotNumber",
+          "membershipUid",
+          "memberUid",
+          "fullName"
+        ]
+      },
+      "RotationMemberResponseDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UUID de l'utilisateur"
+          },
+          "fullName": {
+            "type": "string",
+            "description": "Nom complet"
+          },
+          "rotationOrder": {
+            "type": "number",
+            "description": "Ordre de rotation (ordre d'arrivée)"
+          }
+        },
+        "required": [
+          "uid",
+          "fullName",
+          "rotationOrder"
+        ]
+      },
+      "RotationShuffleReorderResponseDto": {
+        "type": "object",
+        "properties": {
+          "slots": {
+            "description": "Séquence des slots multi-parts (source de vérité)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RotationSlotResponseDto"
+            }
+          },
+          "members": {
+            "description": "Liste des membres par ordre de rotation (compatibilité)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RotationMemberResponseDto"
+            }
+          }
+        },
+        "required": [
+          "slots"
+        ]
+      },
+      "ReorderRotationDto": {
+        "type": "object",
+        "properties": {
+          "orderedMemberUids": {
+            "description": "Liste ordonnée des UIDs des membres (ordre des membres pour round-robin). Compatibilité : 1 UID par membre ACTIVE.",
+            "example": [
+              "uuid-1",
+              "uuid-2",
+              "uuid-3"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "orderedSlotMembershipUids": {
+            "description": "Ordre des slots (multi-parts) : longueur = total des parts, chaque membership UID apparaît exactement sharesCount fois. Prioritaire si fourni.",
+            "example": [
+              "uuid-1",
+              "uuid-2",
+              "uuid-3",
+              "uuid-1"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateSwapRequestDto": {
+        "type": "object",
+        "properties": {
+          "targetMemberUid": {
+            "type": "string",
+            "description": "UID du membre avec qui échanger la position",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          }
+        },
+        "required": [
+          "targetMemberUid"
+        ]
+      },
+      "SwapDecisionDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "description": "Décision sur la demande d'échange",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ]
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "TontineRotationCycleDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UUID du cycle"
+          },
+          "cycleNumber": {
+            "type": "number",
+            "description": "Numéro du cycle (1-based)"
+          },
+          "beneficiaryUid": {
+            "type": "object",
+            "description": "UUID du bénéficiaire",
+            "nullable": true
+          },
+          "beneficiaryName": {
+            "type": "object",
+            "description": "Nom complet du bénéficiaire",
+            "nullable": true
+          },
+          "expectedDate": {
+            "type": "string",
+            "description": "Date prévue du cycle (YYYY-MM-DD)"
+          },
+          "actualPayoutDate": {
+            "type": "object",
+            "description": "Date réelle du versement (YYYY-MM-DD)",
+            "nullable": true
+          },
+          "collectedAmount": {
+            "type": "number",
+            "description": "Montant collecté (FCFA)"
+          },
+          "totalExpected": {
+            "type": "number",
+            "description": "Montant total attendu pour ce cycle (FCFA)"
+          },
+          "collectionProgress": {
+            "type": "number",
+            "description": "Progression de collecte (0–1)",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "status": {
+            "type": "string",
+            "description": "Statut du cycle",
+            "enum": [
+              "PENDING",
+              "ACTIVE",
+              "COMPLETED",
+              "PAYOUT_IN_PROGRESS",
+              "PAYOUT_COMPLETED",
+              "SKIPPED"
+            ]
+          },
+          "displayStatus": {
+            "type": "string",
+            "description": "Statut affiché pour le mobile",
+            "enum": [
+              "RETARDÉ",
+              "VERSÉ",
+              "EN_COURS",
+              "PROCHAIN",
+              "À_VENIR"
+            ]
+          },
+          "delayedByMemberUids": {
+            "description": "UIDs des membres ayant retardé le versement",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isCurrentUserBeneficiary": {
+            "type": "boolean",
+            "description": "L'utilisateur connecté est-il bénéficiaire de ce cycle"
+          }
+        },
+        "required": [
+          "uid",
+          "cycleNumber",
+          "beneficiaryUid",
+          "beneficiaryName",
+          "expectedDate",
+          "actualPayoutDate",
+          "collectedAmount",
+          "totalExpected",
+          "collectionProgress",
+          "status",
+          "displayStatus",
+          "delayedByMemberUids",
+          "isCurrentUserBeneficiary"
+        ]
+      },
+      "TontineRotationResponseDto": {
+        "type": "object",
+        "properties": {
+          "tontineUid": {
+            "type": "string",
+            "description": "UUID de la tontine"
+          },
+          "tontineName": {
+            "type": "string",
+            "description": "Nom de la tontine"
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "Montant total de la tontine (FCFA)"
+          },
+          "currentCycleNumber": {
+            "type": "number",
+            "description": "Numéro du cycle courant (0 si aucun)"
+          },
+          "totalCycles": {
+            "type": "number",
+            "description": "Nombre total de cycles"
+          },
+          "totalParts": {
+            "type": "number",
+            "description": "Nombre total de parts (somme des sharesCount des membres actifs)"
+          },
+          "memberCount": {
+            "type": "number",
+            "description": "Nombre de membres actifs"
+          },
+          "rotationModeExtended": {
+            "type": "string",
+            "description": "Mode de rotation étendu (ARRIVAL, RANDOM, MANUAL)"
+          },
+          "rotationPlanLength": {
+            "type": "number",
+            "description": "Longueur du plan de rotation si défini (rotationPlan)"
+          },
+          "currentBeneficiary": {
+            "type": "object",
+            "description": "Nom du bénéficiaire du cycle en cours",
+            "nullable": true
+          },
+          "cycles": {
+            "description": "Liste des cycles ordonnés",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TontineRotationCycleDto"
+            }
+          }
+        },
+        "required": [
+          "tontineUid",
+          "tontineName",
+          "totalAmount",
+          "currentCycleNumber",
+          "totalCycles",
+          "totalParts",
+          "memberCount",
+          "currentBeneficiary",
+          "cycles"
+        ]
+      },
+      "UpdateTontineDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Nom de la tontine",
+            "example": "Tontine Solidarité Bangui",
+            "minLength": 3,
+            "maxLength": 100
+          },
+          "amountPerShare": {
+            "type": "number",
+            "description": "Montant par part en FCFA (minimum 500 FCFA)",
+            "example": 5000,
+            "minimum": 500
+          },
+          "frequency": {
+            "type": "string",
+            "description": "Fréquence des cotisations",
+            "enum": [
+              "DAILY",
+              "WEEKLY",
+              "BIWEEKLY",
+              "MONTHLY"
+            ],
+            "example": "MONTHLY"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Date de début (ISO 8601), doit être dans le futur",
+            "example": "2026-04-01"
+          },
+          "totalCycles": {
+            "type": "number",
+            "description": "Nombre total de cycles (1 à 50). Pour ROTATIVE : ignoré à la création, calculé automatiquement à l'activation à partir des parts actives. Pour les autres types : peut être fourni.",
+            "example": 12,
+            "minimum": 1,
+            "maximum": 50
+          },
+          "rotationMode": {
+            "type": "string",
+            "description": "Mode de rotation : ARRIVAL (ordre d'arrivée), RANDOM (tirage au sort), MANUAL (réordonnancement manuel)",
+            "enum": [
+              "ARRIVAL",
+              "RANDOM",
+              "MANUAL"
+            ],
+            "default": "ARRIVAL"
+          },
+          "rules": {
+            "type": "object",
+            "description": "Règles personnalisées (JSON libre)",
+            "example": {
+              "penaltyRate": 5,
+              "gracePeriodDays": 3
+            }
+          }
+        }
+      },
+      "InviteMemberDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "Numéro de téléphone du candidat (format RCA +236)",
+            "example": "+23675100010"
+          },
+          "sharesCount": {
+            "type": "number",
+            "description": "Nombre de parts souscrites (1 à 5)",
+            "default": 1,
+            "minimum": 1,
+            "maximum": 5
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      },
+      "AcceptInviteDto": {
+        "type": "object",
+        "properties": {
+          "sharesCount": {
+            "type": "number",
+            "description": "Nombre de parts souscrites (peut modifier celui de l'invitation, 1 à 5)",
+            "minimum": 1,
+            "maximum": 5
+          }
+        }
+      },
+      "RegisterDeviceDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Token FCM ou Expo Push de l'appareil",
+            "example": "dGVzdF90b2tlbl9mb3JfZmlyZWJhc2U..."
+          },
+          "platform": {
+            "type": "string",
+            "description": "Plateforme de l'appareil",
+            "enum": [
+              "ANDROID",
+              "IOS",
+              "WEB"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider du token (FCM par défaut, EXPO pour Expo Push)",
+            "enum": [
+              "FCM",
+              "EXPO"
+            ]
+          }
+        },
+        "required": [
+          "token",
+          "platform"
+        ]
+      },
+      "ScoreEventDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UUID de l'événement",
+            "example": "abc12345-e29b-41d4-a716-446655440000"
+          },
+          "delta": {
+            "type": "number",
+            "description": "Variation du score (positif ou négatif)",
+            "example": 20
+          },
+          "reason": {
+            "type": "string",
+            "description": "Raison de l'événement",
+            "enum": [
+              "PAYMENT_ON_TIME",
+              "PAYMENT_EARLY",
+              "PAYMENT_LATE",
+              "PAYMENT_MISSED",
+              "LATE_1_3_DAYS",
+              "LATE_4_7_DAYS",
+              "LATE_OVER_7_DAYS",
+              "CYCLE_COMPLETED",
+              "TONTINE_ABANDONED",
+              "PENALTY_APPLIED",
+              "DISPUTE_LOST",
+              "BONUS_REFERRAL",
+              "ADMIN_ADJUSTMENT",
+              "SAVINGS_CONTRIBUTION_ON_TIME",
+              "SAVINGS_CONTRIBUTION_LATE",
+              "SAVINGS_CONTRIBUTION_MISSED",
+              "SAVINGS_EARLY_EXIT",
+              "SAVINGS_CYCLE_COMPLETED"
+            ]
+          },
+          "tontineUid": {
+            "type": "object",
+            "description": "UUID de la tontine concernée",
+            "nullable": true,
+            "example": "ffe00123-e29b-41d4-a716-446655440000"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Date de création (ISO 8601)",
+            "example": "2026-03-09T14:00:00.000Z"
+          }
+        },
+        "required": [
+          "uid",
+          "delta",
+          "reason",
+          "tontineUid",
+          "createdAt"
+        ]
+      },
+      "ScoreStatsDto": {
+        "type": "object",
+        "properties": {
+          "totalEvents": {
+            "type": "number",
+            "description": "Nombre total d'événements",
+            "example": 45
+          },
+          "positiveEvents": {
+            "type": "number",
+            "description": "Nombre d'événements positifs",
+            "example": 38
+          },
+          "negativeEvents": {
+            "type": "number",
+            "description": "Nombre d'événements négatifs",
+            "example": 7
+          },
+          "netDelta": {
+            "type": "number",
+            "description": "Somme de tous les delta",
+            "example": 220
+          }
+        },
+        "required": [
+          "totalEvents",
+          "positiveEvents",
+          "negativeEvents",
+          "netDelta"
+        ]
+      },
+      "ScoreResponseDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UUID de l'utilisateur",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "currentScore": {
+            "type": "number",
+            "description": "Score Kelemba actuel (0–1000)",
+            "minimum": 0,
+            "maximum": 1000,
+            "example": 720
+          },
+          "scoreLabel": {
+            "type": "string",
+            "description": "Libellé du score",
+            "enum": [
+              "EXCELLENT",
+              "BON",
+              "MOYEN",
+              "FAIBLE",
+              "CRITIQUE"
+            ],
+            "example": "BON"
+          },
+          "history": {
+            "description": "20 derniers événements (du plus récent)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreEventDto"
+            }
+          },
+          "stats": {
+            "description": "Statistiques agrégées",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScoreStatsDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "uid",
+          "currentScore",
+          "scoreLabel",
+          "history",
+          "stats"
+        ]
+      },
+      "InitiatePaymentDto": {
+        "type": "object",
+        "properties": {
+          "cycleUid": {
+            "type": "string",
+            "description": "UUID du cycle pour lequel la cotisation est payée",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Montant de la cotisation en FCFA (entier, minimum 500)",
+            "example": 5000
+          },
+          "method": {
+            "type": "string",
+            "description": "Moyen de paiement",
+            "enum": [
+              "ORANGE_MONEY",
+              "TELECEL_MONEY"
+            ],
+            "example": "ORANGE_MONEY"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Clé d'idempotence UUID v4 (évite les doubles paiements)",
+            "example": "660e8400-e29b-41d4-a716-446655440001"
+          }
+        },
+        "required": [
+          "cycleUid",
+          "amount",
+          "method",
+          "idempotencyKey"
+        ]
+      },
+      "AdminBanDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Motif du bannissement",
+            "minLength": 5,
+            "maxLength": 500,
+            "example": "Violation répétée des règles de la tontine"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "CreateDisputeDto": {
+        "type": "object",
+        "properties": {
+          "targetUid": {
+            "type": "string",
+            "description": "UID du membre ciblé par le litige",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "tontineUid": {
+            "type": "string",
+            "description": "UID de la tontine concernée",
+            "example": "550e8400-e29b-41d4-a716-446655440001"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description du litige",
+            "minLength": 20,
+            "maxLength": 2000
+          },
+          "evidences": {
+            "description": "Preuves (URLs ou métadonnées)",
+            "example": [
+              "https://example.com/evidence1.png"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "targetUid",
+          "tontineUid",
+          "description"
+        ]
+      },
+      "ResolveDisputeDto": {
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "description": "Décision de résolution du litige",
+            "minLength": 10,
+            "maxLength": 1000
+          },
+          "scoreCorrection": {
+            "type": "number",
+            "description": "Correction de score à appliquer au membre ciblé (delta)",
+            "minimum": -1000,
+            "maximum": 1000
+          },
+          "justification": {
+            "type": "string",
+            "description": "Justification obligatoire si correction de score appliquée",
+            "minLength": 10,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "resolution"
+        ]
+      },
+      "ChangeDisputeStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Nouveau statut du litige",
+            "enum": [
+              "OPEN",
+              "UNDER_REVIEW",
+              "RESOLVED",
+              "CLOSED"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "AdminRejectKycDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Raison du rejet de la vérification KYC",
+            "example": "Document illisible, veuillez soumettre une photo plus nette.",
+            "minLength": 10,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "CreateSavingsTontineDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 100
+          },
+          "minimumContribution": {
+            "type": "number",
+            "minimum": 500,
+            "description": "Montant minimum par période en FCFA"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "WEEKLY",
+              "BIWEEKLY",
+              "MONTHLY"
+            ]
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Date de début ISO 8601"
+          },
+          "unlockDate": {
+            "type": "string",
+            "description": "Date de déblocage ISO 8601 (doit être > startDate)"
+          },
+          "bonusRatePercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 20,
+            "default": 0
+          },
+          "targetAmountPerMember": {
+            "type": "number",
+            "minimum": 500
+          },
+          "targetAmountGlobal": {
+            "type": "number",
+            "minimum": 500
+          },
+          "maxMembers": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 50,
+            "default": 50
+          },
+          "minScoreRequired": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000,
+            "default": 300
+          },
+          "earlyExitPenaltyPercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 30,
+            "default": 5
+          },
+          "isPrivate": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "name",
+          "minimumContribution",
+          "frequency",
+          "startDate",
+          "unlockDate"
+        ]
+      },
+      "ContributeSavingsDto": {
+        "type": "object",
+        "properties": {
+          "periodUid": {
+            "type": "string",
+            "description": "UUID de la période de versement"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 500,
+            "description": "Montant en FCFA (>= minimumContribution)"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "ORANGE_MONEY",
+              "TELECEL_MONEY",
+              "SYSTEM"
+            ]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Clé d'idempotence UUID v4 fournie par le client"
+          }
+        },
+        "required": [
+          "periodUid",
+          "amount",
+          "method",
+          "idempotencyKey"
+        ]
+      },
+      "RequestWithdrawalDto": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "ORANGE_MONEY",
+              "TELECEL_MONEY",
+              "SYSTEM"
+            ]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Clé d'idempotence UUID v4"
+          }
+        },
+        "required": [
+          "method",
+          "idempotencyKey"
+        ]
+      },
+      "SuspendSavingsMemberDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      }
+    }
+  }
+}

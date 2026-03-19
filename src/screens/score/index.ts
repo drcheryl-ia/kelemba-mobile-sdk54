@@ -1,0 +1,1 @@
+export { ScoreHistoryScreen } from './ScoreHistoryScreen';

@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Kelemba",
+    "slug": "kelemba-mobile-sdk54",
+    "version": "1.0.0",
+    "ios": {
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Kelemba utilise Face ID pour sécuriser votre connexion / Kelemba afa Face ID na mbênî sêse."
+      }
+    },
+    "android": {
+      "permissions": ["USE_BIOMETRIC", "USE_FINGERPRINT"]
+    },
+    "newArchEnabled": true // pour expo 54
+  }
+}
