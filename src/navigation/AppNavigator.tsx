@@ -35,6 +35,8 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '@/store/store';
 import { DashboardScreen } from '@/screens/main';
 import { useUnreadCountSync } from '@/hooks/useUnreadCountSync';
+import { useFcmRegistration } from '@/hooks/useFcmRegistration';
+import { useNotificationHandler } from '@/hooks/useNotificationHandler';
 import { TontineListScreen } from '@/screens/tontines';
 import { ContributionHistoryScreen } from '@/screens/payments';
 import { NotificationsScreen } from '@/screens/notifications';
@@ -315,6 +317,9 @@ export const AppNavigator: React.FC = () => {
   const [bootResult, setBootResult] = useState<ResolveResult | null>(null);
   const colorScheme = useColorScheme();
   const navTheme = getNavigationTheme(colorScheme === 'dark' ? 'dark' : 'light');
+
+  useFcmRegistration();
+  useNotificationHandler(navigationRef);
 
   useEffect(() => {
     let cancelled = false;

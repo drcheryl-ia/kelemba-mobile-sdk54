@@ -19,11 +19,7 @@ import { store, persistor } from '@/store/store';
 import { logout } from '@/store/authSlice';
 import { AppNavigator } from '@/navigation/AppNavigator';
 import { useAccountTypeRehydration } from '@/hooks/useAccountTypeRehydration';
-import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { authEventEmitter } from '@/api/authEventEmitter';
-import { useSelector } from 'react-redux';
-import { selectUserUid } from '@/store/authSlice';
-import type { RootState } from '@/store/store';
 import { logger } from '@/utils/logger';
 import { colors } from '@/theme/colors';
 
@@ -92,35 +88,12 @@ function AppContent() {
   );
 }
 
-function AppNavigatorWithPush() {
-  const userUid = useSelector((state: RootState) => selectUserUid(state));
-  const { requestPermissionAndRegister, unregisterDevice } = usePushNotifications(
-    { navigationRef }
-  );
-
-  useEffect(() => {
-    if (userUid) {
-      requestPermissionAndRegister();
-    }
-  }, [userUid, requestPermissionAndRegister]);
-
-  useEffect(() => {
-    const handleLogout = () => {
-      unregisterDevice();
-    };
-    const unsub = authEventEmitter.on('LOGOUT', handleLogout);
-    return unsub;
-  }, [unregisterDevice]);
-
-  return <AppNavigator />;
-}
-
 function AppWithRehydration() {
   useAccountTypeRehydration();
   return (
     <QueryClientProvider client={queryClient}>
       <>
-        <AppNavigatorWithPush />
+        <AppNavigator />
         <StatusBar style="auto" />
       </>
     </QueryClientProvider>

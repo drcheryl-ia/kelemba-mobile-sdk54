@@ -57,6 +57,7 @@ module.exports = {
           // icon et sounds : ajouter quand assets/notification-icon.png et assets/notification-sound.wav existent
         },
       ],
+      'expo-secure-store',
     ],
     android: {
       package: "com.cheryldev63.kelembamobilesdk54",

@@ -5,6 +5,7 @@ import type { AccountType } from '@/types/user.types';
 import { authStorage, STORAGE_KEYS } from '@/storage/authStorage';
 import { apiClient } from '@/api/apiClient';
 import { ENDPOINTS } from '@/api/endpoints';
+import { unregisterPushDeviceBeforeLogout } from '@/api/authApi';
 import { logger } from '@/utils/logger';
 
 type ScoreLevel = 'DEBUTANT' | 'BRONZE' | 'ARGENT' | 'OR' | 'ELITE';
@@ -135,6 +136,7 @@ export const logoutThunk = createAsyncThunk<void, void, { state: RootState }>(
   'auth/logout',
   async (_, { dispatch }) => {
     try {
+      await unregisterPushDeviceBeforeLogout();
       const { url } = ENDPOINTS.AUTH.LOGOUT;
       await apiClient.post(url, {});
     } catch {

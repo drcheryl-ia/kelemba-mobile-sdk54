@@ -216,7 +216,6 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
   },
   timelineRow: {
-    flexDirection: 'row',
     paddingLeft: 20,
     marginHorizontal: -20,
     position: 'relative',

@@ -7,6 +7,7 @@ import { parseApiError } from './errors/errorHandler';
 import { ENDPOINTS } from './endpoints';
 import { authStorage, STORAGE_KEYS } from '@/storage/authStorage';
 import { logger } from '@/utils/logger';
+import { fcmTokenService } from '@/services/fcmTokenService';
 import type { User } from '@/types/domain.types';
 
 export interface LoginResponse {
@@ -23,6 +24,14 @@ export interface RefreshResponse {
 const normalizePhone = (phone: string): string => {
   return phone.replace(/\s/g, '');
 };
+
+/**
+ * Désenregistre le device push (API + SecureStore).
+ * À appeler avant de supprimer les tokens JWT (Bearer encore valide pour DELETE).
+ */
+export async function unregisterPushDeviceBeforeLogout(): Promise<void> {
+  await fcmTokenService.unregister();
+}
 
 export const login = async (
   phone: string,

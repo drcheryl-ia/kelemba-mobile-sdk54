@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-namespace */
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
 export type KycFlowOrigin = 'profile' | 'kycGate';
 
 // ── Auth Stack (non authentifié) ─────────────────────────────
@@ -39,7 +41,7 @@ export type MainTabParamList = {
   Tontines: { initialTab?: 'mine' | 'invitations'; openJoinModal?: boolean } | undefined;
   Payments: undefined;
   History: undefined;
-  Profile: undefined;
+  Profile: NavigatorScreenParams<ProfileStackParamList> | undefined;
 };
 
 // ── Root Stack (screens modaux / par-dessus les tabs) ─────────
@@ -47,7 +49,7 @@ export type RootStackParamList = {
   Splash: undefined;
   AuthStack: undefined;
   KycStack: undefined;
-  MainTabs: undefined;
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   TontineDetails: { tontineUid: string; isCreator?: boolean };
   TontineRotation: { tontineUid: string };
   InviteMembers: { tontineUid: string; tontineName: string };

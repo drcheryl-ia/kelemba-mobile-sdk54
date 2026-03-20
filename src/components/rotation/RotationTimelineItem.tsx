@@ -25,22 +25,28 @@ const DISPLAY_CONFIG: Record<
   RETARDÉ: { icon: 'warning', bg: '#FFF0F0', border: '#D0021B' },
 };
 
-function formatDateFr(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('fr-FR', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+function formatDateFr(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  try {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    if (!y || !m || !d) return dateStr;
+    const date = new Date(y, m - 1, d);
+    return date.toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
-const STATUS_KEYS: Record<CycleDisplayStatus, string> = {
-  VERSÉ: 'rotation.statusVersed',
-  EN_COURS: 'rotation.statusInProgress',
-  PROCHAIN: 'rotation.statusNext',
-  À_VENIR: 'rotation.statusUpcoming',
-  RETARDÉ: 'rotation.statusDelayed',
+const STATUS_LABELS: Record<CycleDisplayStatus, string> = {
+  VERSÉ: 'VERSÉ',
+  EN_COURS: 'EN COURS',
+  PROCHAIN: 'PROCHAIN',
+  À_VENIR: 'À VENIR',
+  RETARDÉ: 'RETARDÉ',
 };
 
 export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
@@ -109,8 +115,8 @@ export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
               ]}
               numberOfLines={2}
             >
-              {t('rotation.tourLabel', { number: cycle.cycleNumber })} :{' '}
-              {cycle.beneficiaryName}
+              {`Tour ${cycle.cycleNumber}`}
+              {cycle.beneficiaryName ? ` : ${cycle.beneficiaryName}` : ''}
             </Text>
             {showRotationBadge ? (
               <View style={styles.rotationRoundPill}>
@@ -138,7 +144,7 @@ export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
                 cycle.displayStatus === 'À_VENIR' && styles.badgeTextUpcoming,
               ]}
             >
-              {t(STATUS_KEYS[cycle.displayStatus])}
+              {STATUS_LABELS[cycle.displayStatus]}
             </Text>
           </Animated.View>
         </View>
@@ -153,7 +159,7 @@ export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
         {cycle.isCurrentUserBeneficiary && cycle.displayStatus === 'PROCHAIN' && (
           <View style={styles.yourTurnBanner}>
             <Text style={styles.yourTurnText}>
-              {t('rotation.yourTurn')}
+              {"C'est votre tour !"}
             </Text>
           </View>
         )}

@@ -20,6 +20,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileStackParamList } from '@/navigation/types';
 import { useProfile } from '@/hooks/useProfile';
 import { apiClient } from '@/api/apiClient';
+import { unregisterPushDeviceBeforeLogout } from '@/api/authApi';
 import { ENDPOINTS } from '@/api/endpoints';
 import { authStorage, STORAGE_KEYS } from '@/storage/authStorage';
 import { authEventEmitter } from '@/api/authEventEmitter';
@@ -246,6 +247,7 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
+              await unregisterPushDeviceBeforeLogout();
               await apiClient.post(ENDPOINTS.AUTH.LOGOUT.url);
             } catch (err: unknown) {
               logger.error('logout API failed', err);
