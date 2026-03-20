@@ -10,3 +10,4 @@ export { TontineRotationScreen } from './TontineRotationScreen';
 export { RotationReorderScreen } from './RotationReorderScreen';
 export { SwapRequestScreen } from './SwapRequestScreen';
 export { TontineListScreen } from './TontineListScreen';
+export { TontineContractSignatureScreen } from './TontineContractSignatureScreen';

@@ -217,7 +217,7 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         />
 
         <TontinesList
-          tontines={displayedTontines}
+          tontines={officialTontines}
           isLoading={tontinesLoading}
           onTontinePress={(tontine) => {
             if (isMembershipPending(tontine)) return;

@@ -177,9 +177,12 @@ export interface RotationSwapRequest {
   decidedAt: string | null;
 }
 
-/** Payload réordonnancement manuel */
+/** Payload réordonnancement manuel.
+ * orderedSlotMembershipUids prioritaire si multi-parts (longueur = total parts).
+ * orderedMemberUids pour compatibilité 1 part/membre. */
 export interface ReorderRotationPayload {
-  orderedMemberUids: string[];
+  orderedMemberUids?: string[];
+  orderedSlotMembershipUids?: string[];
 }
 
 /** Payload création demande d'échange */

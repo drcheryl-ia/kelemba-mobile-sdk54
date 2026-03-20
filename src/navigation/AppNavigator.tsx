@@ -47,6 +47,7 @@ import {
   TontineTypeSelectionScreen,
   RotationReorderScreen,
   SwapRequestScreen,
+  TontineContractSignatureScreen,
 } from '@/screens/tontines';
 import { PaymentScreen, PaymentStatusScreen } from '@/screens/payments';
 import {
@@ -376,6 +377,11 @@ export const AppNavigator: React.FC = () => {
         <RootStack.Screen name="TontineRotation" component={TontineRotationScreen} />
         <RootStack.Screen name="RotationReorderScreen" component={RotationReorderScreen} />
         <RootStack.Screen name="SwapRequestScreen" component={SwapRequestScreen} />
+        <RootStack.Screen
+          name="TontineContractSignature"
+          component={TontineContractSignatureScreen}
+          options={{ headerShown: true, title: 'Contrat de tontine', headerBackTitle: '' }}
+        />
         <RootStack.Screen name="SavingsCreateScreen" component={SavingsCreateScreen} />
         <RootStack.Screen name="SavingsDetailScreen" component={SavingsDetailScreen} />
         <RootStack.Screen name="SavingsDashboardScreen" component={SavingsDashboardScreen} />

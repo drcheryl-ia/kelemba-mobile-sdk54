@@ -26,12 +26,10 @@ import { selectAccountType } from '@/store/authSlice';
 import { useTontines } from '@/hooks/useTontines';
 import {
   getTontines,
-  acceptInvitation,
   rejectInvitation,
   approveMember,
   rejectMemberByOrganizer,
   getTontinePreview,
-  joinTontineByLink,
 } from '@/api/tontinesApi';
 import type { TontinePreview } from '@/api/types/api.types';
 import { parseApiError, getErrorMessageForCode } from '@/api/errors';
@@ -148,7 +146,6 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
   const [joinPreview, setJoinPreview] = useState<TontinePreview | null>(null);
   const [joinPreviewLoading, setJoinPreviewLoading] = useState(false);
   const [joinPreviewError, setJoinPreviewError] = useState<string | null>(null);
-  const [joinLoading, setJoinLoading] = useState(false);
 
   const {
     tontines,
@@ -206,61 +203,6 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
       list = list.filter((t) => t.status === 'COMPLETED' || t.status === 'CANCELLED');
     return sortTontines(list);
   }, [mergedTontinesForDisplay, filter, typeFilter]);
-
-  const handleAccept = useCallback(
-    async (tontineUid: string) => {
-      try {
-        await acceptInvitation(tontineUid);
-        queryClient.invalidateQueries({ queryKey: ['tontines'] });
-        queryClient.invalidateQueries({ queryKey: ['pendingMemberRequests'] });
-        queryClient.invalidateQueries({ queryKey: ['invitationsReceived'] });
-        refetch();
-        void refetchPending();
-        Alert.alert(
-          t('tontineList.acceptSuccess', 'Invitation acceptée'),
-          t(
-            'tontineList.acceptSuccessMessage',
-            'Vous êtes maintenant membre de cette tontine.'
-          )
-        );
-      } catch (err: unknown) {
-        const apiErr = parseApiError(err);
-
-        if (
-          apiErr.httpStatus === 409 &&
-          apiErr.code === ApiErrorCode.INVITATION_ALREADY_PROCESSED
-        ) {
-          // Invitation déjà traitée (membership ACTIVE) — comportement normal.
-          // Rafraîchir silencieusement pour mettre la liste à jour.
-          queryClient.invalidateQueries({ queryKey: ['tontines'] });
-          queryClient.invalidateQueries({ queryKey: ['pendingMemberRequests'] });
-          queryClient.invalidateQueries({ queryKey: ['invitationsReceived'] });
-          refetch();
-          void refetchPending();
-          return;
-        }
-
-        if (
-          apiErr.httpStatus === 409 &&
-          apiErr.code !== ApiErrorCode.INVITATION_ALREADY_PROCESSED
-        ) {
-          const msg = getErrorMessageForCode(apiErr, i18n.language === 'sango' ? 'sango' : 'fr');
-          Alert.alert(t('tontineList.errorFull', 'Invitation refusée'), msg);
-          return;
-        }
-
-        // Toute autre erreur (réseau, serveur, etc.)
-        logger.error('[Invitations] acceptInvitation failed', {
-          tontineUid,
-          code: apiErr.code,
-          httpStatus: apiErr.httpStatus,
-        });
-        const msg = getErrorMessageForCode(apiErr, i18n.language === 'sango' ? 'sango' : 'fr');
-        Alert.alert(t('common.error'), msg);
-      }
-    },
-    [queryClient, refetch, refetchPending, t, i18n]
-  );
 
   const handleReject = useCallback(
     (item: TontineListItem) => {
@@ -335,61 +277,6 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, []);
 
-  const handleJoinConfirm = useCallback(async () => {
-    if (!joinPreview) return;
-    setJoinLoading(true);
-    try {
-      await joinTontineByLink(joinPreview.uid);
-      logger.info('[JoinRequest] Demande envoyée', {
-        tontineUid: joinPreview.uid,
-        tontineName: joinPreview.name,
-      });
-      setShowJoinModal(false);
-      setJoinLink('');
-      setJoinPreview(null);
-      queryClient.invalidateQueries({ queryKey: ['tontines'] });
-      queryClient.invalidateQueries({ queryKey: ['pendingMemberRequests'] });
-      refetch();
-      Alert.alert(
-        t('tontineList.joinRequestSentTitle', 'Demande envoyée'),
-        t('tontineList.joinRequestSentMessage', "Votre demande d'adhésion a été envoyée. Elle est en attente de validation par l'organisateur.", {
-          name: joinPreview.name,
-        })
-      );
-    } catch (err: unknown) {
-      const apiErr = parseApiError(err);
-      logger.error('[JoinRequest] Échec demande d\'adhésion', {
-        tontineUid: joinPreview.uid,
-        tontineName: joinPreview.name,
-        code: apiErr.code,
-        httpStatus: apiErr.httpStatus,
-      });
-      const msg = getErrorMessageForCode(apiErr, i18n.language === 'sango' ? 'sango' : 'fr');
-      if (apiErr.code === ApiErrorCode.TONTINE_ALREADY_MEMBER) {
-        Alert.alert(
-          t('tontineList.joinRequestConflict', 'Demande impossible'),
-          msg
-        );
-      } else if (apiErr.code === ApiErrorCode.TONTINE_FULL) {
-        Alert.alert(t('tontineList.errorFull', 'Tontine pleine'), msg);
-      } else if (apiErr.code === ApiErrorCode.INVITATION_NOT_FOUND) {
-        Alert.alert(
-          t('tontineList.joinRequestError', 'Demande impossible'),
-          msg
-        );
-      } else if (apiErr.httpStatus === 404) {
-        Alert.alert(
-          t('tontineList.tontineNotFound', 'Tontine introuvable'),
-          msg
-        );
-      } else {
-        Alert.alert(t('common.error'), msg);
-      }
-    } finally {
-      setJoinLoading(false);
-    }
-  }, [joinPreview, queryClient, refetch, t]);
-
   const handleCreatePress = useCallback(() => {
     (navigation as { navigate: (n: string) => void }).navigate('TontineTypeSelectionScreen');
   }, [navigation]);
@@ -411,7 +298,10 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
       if (item.type === 'EPARGNE') {
         nav.navigate('SavingsDetailScreen', { tontineUid: item.uid });
       } else {
-        nav.navigate('TontineDetails', { tontineUid: item.uid });
+        nav.navigate('TontineDetails', {
+          tontineUid: item.uid,
+          isCreator: item.isCreator ?? (item.membershipRole === 'CREATOR') ?? false,
+        });
       }
     },
     [navigation]
@@ -482,7 +372,12 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
               </Pressable>
               <Pressable
                 style={styles.invAcceptBtn}
-                onPress={() => handleAccept(item.uid)}
+                onPress={() => {
+                  (navigation as { navigate: (n: string, p: object) => void }).navigate(
+                    'TontineContractSignature',
+                    { mode: 'INVITE_ACCEPT', tontineUid: item.uid, tontineName: item.name }
+                  );
+                }}
                 accessibilityRole="button"
               >
                 <Text style={styles.invAcceptText}>{t('tontineList.accept', 'Accepter')}</Text>
@@ -492,7 +387,7 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
         </View>
       );
     },
-    [handleAccept, handleReject, t]
+    [handleReject, navigation, t]
   );
 
   const renderPendingRequestCard = useCallback(
@@ -838,18 +733,27 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
                   </Text>
                 )}
                 <Pressable
-                  style={[styles.joinConfirmBtn, joinLoading && styles.joinConfirmBtnDisabled]}
-                  onPress={handleJoinConfirm}
-                  disabled={joinLoading}
+                  style={styles.joinConfirmBtn}
+                  onPress={() => {
+                    if (!joinPreview) return;
+                    setShowJoinModal(false);
+                    setJoinLink('');
+                    setJoinPreview(null);
+                    setJoinPreviewError(null);
+                    (navigation as { navigate: (n: string, p: object) => void }).navigate(
+                      'TontineContractSignature',
+                      {
+                        mode: 'JOIN_REQUEST',
+                        tontineUid: joinPreview.uid,
+                        tontineName: joinPreview.name,
+                      }
+                    );
+                  }}
                   accessibilityRole="button"
                 >
-                  {joinLoading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.joinConfirmBtnText}>
-                      Envoyer ma demande d'adhésion
-                    </Text>
-                  )}
+                  <Text style={styles.joinConfirmBtnText}>
+                    Envoyer ma demande d'adhésion
+                  </Text>
                 </Pressable>
               </View>
             ) : null}

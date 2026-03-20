@@ -48,13 +48,19 @@ export type RootStackParamList = {
   AuthStack: undefined;
   KycStack: undefined;
   MainTabs: undefined;
-  TontineDetails: { tontineUid: string };
+  TontineDetails: { tontineUid: string; isCreator?: boolean };
   TontineRotation: { tontineUid: string };
   InviteMembers: { tontineUid: string; tontineName: string };
   TontineTypeSelectionScreen: undefined;
   CreateTontine: undefined;
   RotationReorderScreen: { tontineUid: string };
   SwapRequestScreen: { tontineUid: string };
+  TontineContractSignature: {
+    mode: 'INVITE_ACCEPT' | 'JOIN_REQUEST';
+    tontineUid: string;
+    tontineName?: string;
+    sharesCount?: number;
+  };
   SavingsCreateScreen: undefined;
   SavingsDetailScreen: { tontineUid: string };
   SavingsDashboardScreen: { tontineUid: string };

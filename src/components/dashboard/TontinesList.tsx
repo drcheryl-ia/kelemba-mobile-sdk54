@@ -56,6 +56,8 @@ export const TontinesList: React.FC<TontinesListProps> = ({
     );
   }
 
+  const isEmpty = tontines.length === 0;
+
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -65,7 +67,15 @@ export const TontinesList: React.FC<TontinesListProps> = ({
         </Pressable>
       </View>
       <View style={styles.listVertical}>
-        {tontines.slice(0, 3).map((tontine) => {
+        {isEmpty ? (
+          <View style={styles.emptyStateCard}>
+            <Ionicons name="people-outline" size={28} color="#9CA3AF" />
+            <Text style={styles.emptyStateText}>
+              {t('dashboard.emptyActiveTontines', "Vous n'êtes pas membre d'aucune tontine")}
+            </Text>
+          </View>
+        ) : (
+          tontines.slice(0, 3).map((tontine) => {
           const isPending = isMembershipPending(tontine);
           return (
             <GradientBorderCard
@@ -131,7 +141,9 @@ export const TontinesList: React.FC<TontinesListProps> = ({
             </Pressable>
           </GradientBorderCard>
           );
-        })}
+        })
+        )
+        }
       </View>
     </View>
   );
@@ -162,6 +174,23 @@ const styles = StyleSheet.create({
   listVertical: {
     paddingHorizontal: 20,
     gap: 12,
+  },
+  emptyStateCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 12,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 20,
   },
   tontineCardWrapper: {},
   tontineCardInner: {

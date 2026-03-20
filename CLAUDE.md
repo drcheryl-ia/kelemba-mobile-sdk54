@@ -322,6 +322,13 @@ Toutes les actions financières, KYC, rotation, admin, auth → table `audit_log
 
 ---
 
+## RÈGLE — Ordre de priorité des branches dans TontineCard
+Le check isMembershipPending() doit toujours précéder le check isDraft.
+Tout composant affichant une TontineListItem doit appliquer cet ordre :
+  1. membershipStatus === 'PENDING' → rendu grisé "En attente" (early return)
+  2. status === 'DRAFT'             → draftCard
+  3. status === 'ACTIVE' (confirmé) → card normale + GradientBorderCard
+  
 ## 7. MODULES MÉTIER
 
 | Module | Couche | Statut |

@@ -33,6 +33,11 @@ import type {
 import { normalizeRcPhone } from '@/utils/validators';
 import type { TontineRotationResponse } from '@/types/rotation';
 import type { TontineType } from '@/types/savings.types';
+import type {
+  TontineContractPreviewResponse,
+  AcceptInvitationWithSignaturePayload,
+  CreateJoinRequestWithSignaturePayload,
+} from '@/types/contract';
 
 /** Client sans intercepteur auth — pour GET preview invitation */
 const unauthenticatedClient = axios.create({
@@ -61,6 +66,30 @@ export const getTontinePreview = async (
       throw new ApiError(ApiErrorCode.TONTINE_NOT_FOUND, 404, apiError.message);
     }
     logger.error('getTontinePreview failed');
+    throw apiError;
+  }
+};
+
+/**
+ * Aperçu du contrat de tontine (authentifié).
+ * GET /api/v1/tontines/:uid/contract-preview
+ */
+export const getTontineContractPreview = async (
+  tontineUid: string
+): Promise<TontineContractPreviewResponse> => {
+  try {
+    const { url } = ENDPOINTS.TONTINES.CONTRACT_PREVIEW(tontineUid);
+    const response = await apiClient.get<TontineContractPreviewResponse>(url);
+    return response.data;
+  } catch (err: unknown) {
+    const apiError = parseApiError(err);
+    if (apiError.httpStatus === 404) {
+      throw new ApiError(ApiErrorCode.TONTINE_NOT_FOUND, 404, apiError.message);
+    }
+    if (apiError.httpStatus === 403) {
+      throw new ApiError(ApiErrorCode.FORBIDDEN, 403, apiError.message);
+    }
+    logger.error('getTontineContractPreview failed', { tontineUid });
     throw apiError;
   }
 };
@@ -187,14 +216,17 @@ export const getTontines = async (): Promise<TontineListItem[]> => {
 /**
  * Accepter une invitation à une tontine.
  * POST /api/v1/tontines/:tontineUid/members/accept
+ * @param payload Si fourni, envoie acceptedTerms, signatureName, contractVersion (et sharesCount?)
  */
 export const acceptInvitation = async (
   tontineUid: string,
-  sharesCount?: number
+  sharesCount?: number,
+  payload?: AcceptInvitationWithSignaturePayload
 ): Promise<void> => {
   try {
     const { url } = ENDPOINTS.TONTINES.MEMBERS_ACCEPT(tontineUid);
-    await apiClient.post(url, sharesCount != null ? { sharesCount } : {});
+    const body = payload ?? (sharesCount != null ? { sharesCount } : {});
+    await apiClient.post(url, body);
   } catch (err: unknown) {
     const apiErr = parseApiError(err);
 
@@ -214,13 +246,16 @@ export const acceptInvitation = async (
 /**
  * Créer une demande d'adhésion via lien/QR partagé.
  * POST /api/v1/tontines/:tontineUid/join-requests
+ * @param payload Si fourni, envoie acceptedTerms, signatureName, contractVersion (et sharesCount?)
  */
 export async function createJoinRequest(
   tontineUid: string,
-  sharesCount?: number
+  sharesCount?: number,
+  payload?: CreateJoinRequestWithSignaturePayload
 ): Promise<void> {
   const { url } = ENDPOINTS.TONTINES.JOIN_REQUESTS(tontineUid);
-  await apiClient.post(url, { sharesCount: sharesCount ?? 1 });
+  const body = payload ?? { sharesCount: sharesCount ?? 1 };
+  await apiClient.post(url, body);
 }
 
 /**
@@ -387,6 +422,20 @@ export async function rejectMemberByOrganizer(
 }
 
 /**
+ * Mettre à jour le nombre de parts d'un membre (tontine DRAFT, organisateur).
+ * PATCH /api/v1/tontines/:tontineUid/members/:memberUid/shares
+ * Body: { sharesCount: number } (1-5)
+ */
+export async function updateMemberShares(
+  tontineUid: string,
+  memberUid: string,
+  sharesCount: number
+): Promise<void> {
+  const { url } = ENDPOINTS.TONTINES.MEMBER_UPDATE_SHARES(tontineUid, memberUid);
+  await apiClient.patch(url, { sharesCount });
+}
+
+/**
  * Refuser une demande d'adhésion en attente (organisateur).
  * PATCH /api/v1/tontines/:tontineUid/members/:memberUid/reject
  * Délègue à rejectMemberByOrganizer — flux join-request uniquement.
@@ -441,26 +490,64 @@ export const getCurrentCycle = async (
   }
 };
 
+/** Réponse paginée GET /api/v1/tontines/:tontineUid/members */
+interface MembersApiResponse {
+  items?: Array<{
+    uid: string;
+    userUid?: string;
+    fullName?: string;
+    phone?: string;
+    phoneMasked?: string;
+    kelembScore?: number;
+    memberRole?: string;
+    membershipStatus?: string;
+    role?: string;
+    sharesCount?: number;
+    rotationOrder?: number;
+    currentCyclePaymentStatus?: string | null;
+    signedAt?: string | null;
+    paidAmount?: number;
+    [key: string]: unknown;
+  }>;
+  total?: number;
+  tontineUid?: string;
+  tontineName?: string;
+  totalShares?: number;
+}
+
 /**
  * Liste des membres d'une tontine avec statut de paiement.
  * GET /api/v1/tontines/:tontineUid/members
- * Normalise role→memberRole et user.uid→userUid (backend vs type TontineMember).
+ * La réponse est paginée : response.data.items contient le tableau.
+ * Champs plats backend : memberRole, membershipStatus, userUid, fullName.
  */
 export const getTontineMembers = async (
   tontineUid: string
 ): Promise<TontineMember[]> => {
   try {
     const { url } = ENDPOINTS.TONTINES.MEMBERS(tontineUid);
-    const response = await apiClient.get<Record<string, unknown>[]>(url);
-    const raw = Array.isArray(response.data) ? response.data : [];
-    return raw.map((item) => {
-      const base = item as unknown as TontineMember;
+    const response = await apiClient.get<MembersApiResponse | Record<string, unknown>[]>(url);
+
+    // Règle 1 : lire response.data.items (réponse paginée) ou fallback sur array direct (rétrocompat)
+    const rawItems = Array.isArray(response.data)
+      ? response.data
+      : (response.data as MembersApiResponse)?.items ?? [];
+
+    return rawItems.map((item) => {
+      const raw = item as Record<string, unknown>;
       return {
-        ...base,
-        memberRole: (item.role ?? item.memberRole ?? base.memberRole) as TontineMember['memberRole'],
-        userUid: (
-          (item.user as { uid?: string } | undefined)?.uid ?? item.userUid ?? base.userUid
-        ) as string,
+        uid: String(raw.uid ?? ''),
+        userUid: String(raw.userUid ?? (raw.user as { uid?: string } | undefined)?.uid ?? ''),
+        fullName: String(raw.fullName ?? ''),
+        phone: String(raw.phone ?? raw.phoneMasked ?? ''),
+        sharesCount: Number(raw.sharesCount ?? 1),
+        rotationOrder: Number(raw.rotationOrder ?? 0),
+        memberRole: (raw.memberRole ?? raw.role ?? 'MEMBER') as TontineMember['memberRole'],
+        membershipStatus: (raw.membershipStatus ?? raw.status ?? 'ACTIVE') as TontineMember['membershipStatus'],
+        kelembScore: Number(raw.kelembScore ?? 0),
+        currentCyclePaymentStatus: (raw.currentCyclePaymentStatus as TontineMember['currentCyclePaymentStatus']) ?? null,
+        paidAmount: Number(raw.paidAmount ?? 0),
+        signedAt: (raw.signedAt as string | null) ?? null,
       };
     });
   } catch (err: unknown) {

@@ -18,6 +18,7 @@ import {
   TontineTypeSelectionScreen,
   RotationReorderScreen,
   SwapRequestScreen,
+  TontineContractSignatureScreen,
 } from '@/screens/tontines';
 import { PaymentScreen, PaymentStatusScreen } from '@/screens/payments';
 import {
@@ -83,6 +84,11 @@ export const RootNavigator: React.FC = () => (
       name="SwapRequestScreen"
       component={SwapRequestScreen}
       options={{ headerShown: false }}
+    />
+    <Stack.Screen
+      name="TontineContractSignature"
+      component={TontineContractSignatureScreen}
+      options={{ headerShown: true, title: 'Contrat de tontine', headerBackTitle: '' }}
     />
     <Stack.Screen
       name="SavingsCreateScreen"

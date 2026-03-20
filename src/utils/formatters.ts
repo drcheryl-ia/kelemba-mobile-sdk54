@@ -19,6 +19,16 @@ export const maskPhone = (phone: string): string => {
   return `${prefix} ·· ·· ${last4.slice(0, 2)} ${last4.slice(2, 4)}`;
 };
 
+/** Date longue (ex: "19 mars 2026") */
+export const formatDateLong = (dateStr: string): string => {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+};
+
 /** Affichage sécurisé d'un numéro — évite crash si undefined (pour phoneMasked) */
 export const formatPhoneSafe = (value?: string | null): string => {
   if (!value || typeof value !== 'string') return 'Numéro indisponible';

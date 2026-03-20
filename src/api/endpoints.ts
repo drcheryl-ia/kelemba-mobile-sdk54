@@ -99,6 +99,11 @@ export const ENDPOINTS = {
       method: 'PATCH' as const,
       url: `${BASE}/v1/tontines/${tontineUid}/members/${memberUid}/reject`,
     }),
+    /** PATCH sharesCount (1-5) — tontine DRAFT, organisateur uniquement */
+    MEMBER_UPDATE_SHARES: (tontineUid: string, memberUid: string) => ({
+      method: 'PATCH' as const,
+      url: `${BASE}/v1/tontines/${tontineUid}/members/${memberUid}/shares`,
+    }),
     MEMBERS: (tontineUid: string) => ({
       method: 'GET' as const,
       url: `${BASE}/v1/tontines/${tontineUid}/members`,
@@ -134,6 +139,10 @@ export const ENDPOINTS = {
     INVITATION_PREVIEW: (tontineUid: string) => ({
       method: 'GET' as const,
       url: `${BASE}/v1/tontines/invitation/${tontineUid}/preview`,
+    }),
+    CONTRACT_PREVIEW: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/tontines/${uid}/contract-preview`,
     }),
     JOIN_REQUESTS: (tontineUid: string) => ({
       method: 'POST' as const,

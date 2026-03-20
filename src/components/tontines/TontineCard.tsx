@@ -6,6 +6,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { isMembershipPending } from '@/utils/tontineMerge';
+import { GradientBorderCard } from '@/components/common/GradientBorderCard';
 import type { TontineListItem, TontineStatus, TontineFrequency } from '@/types/tontine';
 
 const FREQ_KEYS: Record<TontineFrequency, string> = {
@@ -68,11 +69,55 @@ export const TontineCard: React.FC<TontineCardProps> = ({
   const statusColor = STATUS_COLORS[item.status];
   const freqLabel = t(FREQ_KEYS[item.frequency ?? 'MONTHLY']);
 
+  // ── PRIORITÉ 1 : membership PENDING — grisage systématique ──────────
+  const isMembershipPendingState = isMembershipPending(item);
+  if (isMembershipPendingState) {
+    const isJoinRequest = item.invitationOrigin === 'JOIN_REQUEST';
+    const pendingBadgeLabel = t('tontineList.pendingBadge', 'En attente');
+    const pendingSubLabel = isJoinRequest
+      ? t('tontineList.pendingSubJoinRequest', 'En attente de validation par l\'organisateur.')
+      : item.invitationOrigin === 'INVITE'
+        ? t('tontineList.pendingSubInvite', 'Acceptez cette invitation pour rejoindre la tontine.')
+        : t('tontineList.pendingSubGeneric', 'Adhésion non finalisée. Sera activée après validation.');
+
+    return (
+      <View style={styles.pendingCardWrapper}>
+        <View style={styles.pendingCardContent}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+              <Text style={styles.statusText}>{statusLabel}</Text>
+            </View>
+          </View>
+          <Text style={styles.cardAmount}>
+            {formatFcfa(item.amountPerShare)} / {t('tontineList.part', 'part')}
+          </Text>
+          <Text style={styles.cardFreq}>{freqLabel}</Text>
+          <Text style={styles.cardCycle}>
+            {item.totalCycles} {t('tontineList.cycles', 'cycles')}
+          </Text>
+        </View>
+        <View style={styles.pendingOverlay}>
+          <View style={styles.pendingBadge}>
+            <Ionicons name="time-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.pendingBadgeText}>{pendingBadgeLabel}</Text>
+          </View>
+          <Text style={styles.pendingSubText}>{pendingSubLabel}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // ── PRIORITÉ 2 : tontine DRAFT (organisateur) ────────────────────────
   if (isDraft) {
     const memberCount = item.activeMemberCount ?? 1;
     const startDateFormatted = item.startDate
       ? formatDateLong(item.startDate)
       : t('tontineList.dateUndefined', 'Date non définie');
+    const notStartedBadgeLabel = t('tontineList.notStartedBadge', 'Non démarrée');
+    const notStartedSubLabel = t('tontineList.notStartedSub', 'Cette tontine n\'a pas encore démarré.');
 
     return (
       <Pressable
@@ -81,12 +126,18 @@ export const TontineCard: React.FC<TontineCardProps> = ({
         accessibilityRole="button"
         accessibilityLabel={item.name}
       >
-        <View style={styles.draftBadge}>
-          <Text style={styles.draftBadgeText}>{statusLabel}</Text>
+        <View style={styles.draftBadgesRow}>
+          <View style={styles.draftBadge}>
+            <Text style={styles.draftBadgeText}>{statusLabel}</Text>
+          </View>
+          <View style={styles.notStartedBadge}>
+            <Text style={styles.notStartedBadgeText}>{notStartedBadgeLabel}</Text>
+          </View>
         </View>
         <Text style={styles.draftCardName} numberOfLines={1}>
           {item.name}
         </Text>
+        <Text style={styles.draftCardNotStartedSub}>{notStartedSubLabel}</Text>
         <Text style={styles.draftCardSub}>
           {item.startDate
             ? t('tontineList.startsOn', 'Démarre le {{date}}', { date: startDateFormatted })
@@ -116,24 +167,12 @@ export const TontineCard: React.FC<TontineCardProps> = ({
     );
   }
 
-  const isMembershipPendingState = isMembershipPending(item);
-  const isJoinRequest = item.invitationOrigin === 'JOIN_REQUEST';
-  const pendingBadgeLabel = t('tontineList.pendingBadge', 'En attente');
-  const pendingSubLabel = isJoinRequest
-    ? t('tontineList.pendingSubJoinRequest', 'En attente de validation par l\'organisateur.')
-    : item.invitationOrigin === 'INVITE'
-      ? t('tontineList.pendingSubInvite', 'Acceptez cette invitation pour activer la tontine.')
-      : t('tontineList.pendingSubGeneric', 'Adhésion non finalisée. Cette tontine sera activée après validation.');
+  const isActiveConfirmed = item.status === 'ACTIVE';
 
-  return (
+  const cardNode = (
     <Pressable
-      style={[styles.card, isMembershipPendingState && styles.cardPending]}
-      onPress={() => {
-        if (isMembershipPendingState) return;
-        onPress(item);
-      }}
-      disabled={isMembershipPendingState}
-      accessibilityState={{ disabled: isMembershipPendingState }}
+      style={[styles.card, isActiveConfirmed && styles.cardActive]}
+      onPress={() => onPress(item)}
       accessibilityRole="button"
       accessibilityLabel={item.name}
     >
@@ -168,17 +207,21 @@ export const TontineCard: React.FC<TontineCardProps> = ({
           <Text style={styles.roleText}>{t('tontineList.organizer', 'Organisateur')}</Text>
         </View>
       )}
-      {isMembershipPendingState && (
-        <View style={styles.pendingOverlay}>
-          <View style={styles.pendingBadge}>
-            <Ionicons name="time-outline" size={14} color="#FFFFFF" />
-            <Text style={styles.pendingBadgeText}>{pendingBadgeLabel}</Text>
-          </View>
-          <Text style={styles.pendingSubText}>{pendingSubLabel}</Text>
-        </View>
-      )}
     </Pressable>
   );
+
+  if (isActiveConfirmed) {
+    return (
+      <GradientBorderCard
+        style={styles.cardGradientWrapper}
+        innerStyle={styles.cardGradientInner}
+      >
+        {cardNode}
+      </GradientBorderCard>
+    );
+  }
+
+  return cardNode;
 };
 
 const styles = StyleSheet.create({
@@ -187,11 +230,26 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
+  },
+  cardActive: {
+    marginBottom: 0,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  cardGradientWrapper: {
+    marginBottom: 12,
+    marginHorizontal: 0,
+  },
+  cardGradientInner: {
+    padding: 0,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -258,17 +316,39 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  draftBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
   draftBadge: {
     backgroundColor: '#E8F5EE',
     borderRadius: 20,
     paddingVertical: 3,
     paddingHorizontal: 10,
-    alignSelf: 'flex-start',
   },
   draftBadgeText: {
     color: '#1A6B3C',
     fontSize: 12,
     fontWeight: '600',
+  },
+  notStartedBadge: {
+    backgroundColor: '#6B7280',
+    borderRadius: 20,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+  },
+  notStartedBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  draftCardNotStartedSub: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 6,
+    fontStyle: 'italic',
   },
   draftCardName: {
     fontSize: 16,
@@ -315,37 +395,49 @@ const styles = StyleSheet.create({
     borderColor: '#D1D5DB',
     borderStyle: 'dashed',
   },
+  pendingCardWrapper: {
+    borderRadius: 16,
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    borderStyle: 'dashed',
+  },
+  pendingCardContent: {
+    backgroundColor: '#F3F4F6',
+    padding: 16,
+    opacity: 0.6,
+  },
   pendingOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: 16,
-    backgroundColor: 'rgba(107,114,128,0.65)',
+    backgroundColor: 'rgba(55,65,81,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
+    paddingHorizontal: 20,
   },
   pendingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingVertical: 7,
   },
   pendingBadgeText: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '700',
   },
   pendingSubText: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.9)',
     textAlign: 'center',
-    paddingHorizontal: 20,
-    lineHeight: 17,
+    lineHeight: 18,
   },
 });

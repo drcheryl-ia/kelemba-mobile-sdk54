@@ -51,8 +51,7 @@ export const RotationReorderScreen: React.FC<Props> = ({
   );
 
   const handleSave = useCallback(() => {
-    const orderedMemberUids = localMembers.map((m) => m.uid);
-    if (orderedMemberUids.length < 2) {
+    if (localMembers.length < 2) {
       Alert.alert(
         t('common.error', 'Erreur'),
         t('rotationReorder.minMembers', 'Au moins 2 membres requis.')
@@ -60,8 +59,18 @@ export const RotationReorderScreen: React.FC<Props> = ({
       return;
     }
 
+    // Toujours utiliser orderedSlotMembershipUids (format prioritaire accepté par le backend
+    // pour mono ET multi-parts). orderedMemberUids est rejeté dès qu'un membre a sharesCount > 1.
+    const orderedSlotMembershipUids: string[] = [];
+    for (const m of localMembers) {
+      const count = Math.max(1, m.sharesCount ?? 1);
+      for (let i = 0; i < count; i++) {
+        orderedSlotMembershipUids.push(m.uid);
+      }
+    }
+
     reorderMutation.mutate(
-      { orderedMemberUids },
+      { orderedSlotMembershipUids },
       {
         onSuccess: () => {
           Alert.alert(

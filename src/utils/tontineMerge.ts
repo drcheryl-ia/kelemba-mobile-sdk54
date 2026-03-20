@@ -42,7 +42,11 @@ export function mergeDisplayableTontines(
 
   for (const inv of invitations) {
     if (!inv.uid) continue;
-    if (!byUid.has(inv.uid)) {
+    const existing = byUid.get(inv.uid);
+    // Les invitations/received ont toujours membershipStatus PENDING.
+    // Si la même tontine existe dans /tontines/me sans PENDING confirmé,
+    // la version PENDING des invitations prend la priorité.
+    if (!existing || existing.membershipStatus !== 'PENDING') {
       byUid.set(inv.uid, normalizePendingTontine({ ...inv, membershipStatus: 'PENDING' }));
     }
   }

@@ -42,6 +42,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { ScoreProgressBar } from '@/components/profile/ScoreProgressBar';
 import { ErrorToast } from '@/components/ui/ErrorToast';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
+import { TontineActivationPanel } from '@/components/tontines';
 import type {
   TontineStatus,
   TontineReportCycle,
@@ -150,7 +151,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
   navigation,
   route,
 }) => {
-  const { tontineUid } = route.params;
+  const { tontineUid, isCreator: isCreatorParam } = route.params;
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const userUid = useSelector((state: RootState) => selectUserUid(state));
@@ -183,6 +184,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
 
   const isDraft = tontine?.status === 'DRAFT';
   const isCreator: boolean =
+    isCreatorParam ??
     tontine?.isCreator ??
     (userUid != null &&
       members.some((m) => m.memberRole === 'CREATOR' && m.userUid === userUid)) ??
@@ -415,6 +417,60 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     tontine.status === 'DRAFT'
       ? `${members.length} ${t('tontineDetails.membersLabel', 'membres')} · ${formatFcfa(tontine.amountPerShare)}/part`
       : `${members.length} ${t('tontineDetails.membersLabel', 'membres')} · ${statusLabel}`;
+
+  // DRAFT + organisateur : afficher le panneau d'activation (pas les onglets)
+  if (isDraft && isCreator) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={styles.headerBackButton}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.back')}
+          >
+            <Ionicons name="arrow-back" size={24} color={KELEMBA_GREEN} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle} numberOfLines={2}>
+              {tontine.name}
+            </Text>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              {headerSubtitle}
+            </Text>
+          </View>
+          <Pressable
+            style={styles.settingsButton}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Paramètres"
+            onPress={() => showToast('Paramètres à venir', 'info')}
+          >
+            <Ionicons name="settings-outline" size={24} color="#6B7280" />
+          </Pressable>
+        </View>
+        <TontineActivationPanel
+          tontine={tontine}
+          tontineUid={tontineUid}
+          members={members}
+          membersLoading={membersLoading}
+          navigation={navigation}
+          onSuccess={() => {
+            refetchDetails();
+            refetchMembers();
+          }}
+          showToast={showToast}
+        />
+        <ErrorToast
+          message={toastMessage}
+          visible={toastVisible}
+          severity={toastSeverity}
+          onHide={() => setToastVisible(false)}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

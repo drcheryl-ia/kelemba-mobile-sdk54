@@ -690,6 +690,42 @@
         ]
       }
     },
+    "/api/v1/tontines/{uid}/contract-preview": {
+      "get": {
+        "operationId": "TontinesController_getContractPreview_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contrat à signer pour rejoindre la tontine."
+          },
+          "403": {
+            "description": "Accès non autorisé."
+          },
+          "404": {
+            "description": "Tontine introuvable ou non joignable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Prévisualiser le contrat avant signature (invitation ou lien/QR)",
+        "tags": [
+          "Tontines"
+        ]
+      }
+    },
     "/api/v1/tontines/{uid}/join-requests": {
       "post": {
         "operationId": "TontinesController_createJoinRequest_v1",
@@ -1406,6 +1442,64 @@
           }
         ],
         "summary": "Refuser une invitation",
+        "tags": [
+          "Tontines — Membres"
+        ]
+      }
+    },
+    "/api/v1/tontines/{tontineUid}/members/{memberUid}/shares": {
+      "patch": {
+        "operationId": "MembersController_updateShares_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du membership",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSharesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Parts mises à jour."
+          },
+          "400": {
+            "description": "Nombre de parts invalide ou tontine pleine."
+          },
+          "403": {
+            "description": "Seul le créateur peut modifier les parts."
+          },
+          "409": {
+            "description": "La tontine n'est pas en DRAFT."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Modifier le nombre de parts d'un membre (créateur, tontine DRAFT)",
         "tags": [
           "Tontines — Membres"
         ]
@@ -4180,8 +4274,29 @@
             "minimum": 1,
             "maximum": 5,
             "default": 1
+          },
+          "acceptedTerms": {
+            "type": "boolean",
+            "description": "Acceptation des termes du contrat (obligatoire)",
+            "example": true
+          },
+          "signatureName": {
+            "type": "string",
+            "description": "Nom du signataire (tel qu'affiché, pour la signature électronique)",
+            "example": "Jean Dupont",
+            "minLength": 2
+          },
+          "contractVersion": {
+            "type": "string",
+            "description": "Version du contrat (actuellement 1.0)",
+            "example": "1.0"
           }
-        }
+        },
+        "required": [
+          "acceptedTerms",
+          "signatureName",
+          "contractVersion"
+        ]
       },
       "RotationSlotResponseDto": {
         "type": "object",
@@ -4563,8 +4678,44 @@
             "description": "Nombre de parts souscrites (peut modifier celui de l'invitation, 1 à 5)",
             "minimum": 1,
             "maximum": 5
+          },
+          "acceptedTerms": {
+            "type": "boolean",
+            "description": "Acceptation des termes du contrat (obligatoire)",
+            "example": true
+          },
+          "signatureName": {
+            "type": "string",
+            "description": "Nom du signataire (tel qu'affiché, pour la signature électronique)",
+            "example": "Jean Dupont",
+            "minLength": 2
+          },
+          "contractVersion": {
+            "type": "string",
+            "description": "Version du contrat (actuellement 1.0)",
+            "example": "1.0"
           }
-        }
+        },
+        "required": [
+          "acceptedTerms",
+          "signatureName",
+          "contractVersion"
+        ]
+      },
+      "UpdateSharesDto": {
+        "type": "object",
+        "properties": {
+          "sharesCount": {
+            "type": "number",
+            "description": "Nouveau nombre de parts (1 à 5)",
+            "minimum": 1,
+            "maximum": 5,
+            "example": 2
+          }
+        },
+        "required": [
+          "sharesCount"
+        ]
       },
       "RegisterDeviceDto": {
         "type": "object",
