@@ -116,13 +116,23 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
   const activeTontinesCount = officialTontines.length;
 
+  // Afficher le rappel dès qu'un paiement est dû, quel que soit le niveau
+  // d'urgence. La date de référence vient du serveur (nextPayment.dueDate).
   const showNextPaymentBanner =
     nextPayment !== null &&
     !isProcessing &&
-    urgencyLevel !== null &&
-    urgencyLevel !== 'NORMAL';
-  const daysLeftForBanner =
-    urgencyLevel === 'EN_RETARD' ? 0 : (joursRestants ?? 0);
+    urgencyLevel !== null;
+
+  const daysLeftForBanner = (() => {
+    if (!nextPayment?.dueDate) return joursRestants ?? 0;
+    // Calcul depuis la date serveur tronquée à minuit UTC
+    const due = new Date(nextPayment.dueDate.split('T')[0] + 'T00:00:00.000Z');
+    const now = new Date();
+    const todayUTC = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    );
+    return Math.round((due.getTime() - todayUTC.getTime()) / 86_400_000);
+  })();
 
   const userScore = scoreData.data?.currentScore ?? 500; // défaut 500 = valeur BDD par défaut
   const unreadNotifications = unreadCount.data?.count ?? 0;
@@ -173,7 +183,9 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           <AlertBanner
             daysLeft={daysLeftForBanner}
             tontineName={nextPayment.tontineName}
-            amount={nextPayment.totalDue}
+            amount={nextPayment.amountDue}
+            penaltyAmount={nextPayment.penaltyAmount ?? 0}
+            totalDue={nextPayment.totalDue}
             onCotiserPress={() => navigation.navigate('Payments')}
             isVisible={true}
           />

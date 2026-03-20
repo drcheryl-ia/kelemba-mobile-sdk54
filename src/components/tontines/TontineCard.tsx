@@ -46,6 +46,36 @@ function formatDateLong(dateStr: string): string {
   });
 }
 
+/**
+ * Calcule le nombre de jours restants depuis une date ISO retournée
+ * par le serveur. Retourne null si dateStr est absent.
+ * On tronque les deux dates à minuit UTC pour ignorer l'heure.
+ */
+function computeDaysLeft(dateStr: string | null | undefined): number | null {
+  if (!dateStr) return null;
+  const due = new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+  const now = new Date();
+  const todayUTC = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
+  return Math.round((due.getTime() - todayUTC.getTime()) / 86_400_000);
+}
+
+function urgencyColor(daysLeft: number | null): string {
+  if (daysLeft === null) return '#6B7280';
+  if (daysLeft < 0) return '#D0021B';
+  if (daysLeft <= 2) return '#F5A623';
+  return '#1A6B3C';
+}
+
+function urgencyLabel(daysLeft: number | null): string {
+  if (daysLeft === null) return '';
+  if (daysLeft < 0) return `En retard de ${Math.abs(daysLeft)} jour(s)`;
+  if (daysLeft === 0) return "Dû aujourd'hui";
+  if (daysLeft === 1) return 'Dû demain';
+  return `Dans ${daysLeft} jours`;
+}
+
 function formatFcfa(amount: number): string {
   return `${amount.toLocaleString('fr-FR')} FCFA`;
 }
@@ -197,11 +227,45 @@ export const TontineCard: React.FC<TontineCardProps> = ({
       </Text>
       <Text style={styles.cardFreq}>{freqLabel}</Text>
       {item.hasPaymentDue && PaymentDueBadge && <PaymentDueBadge />}
-      {item.nextPaymentDate && (
-        <Text style={styles.cardNext}>
-          {t('tontineList.nextPayment', 'Prochain')} : {formatDateShort(item.nextPaymentDate)}
-        </Text>
-      )}
+      {item.nextPaymentDate && (() => {
+        const daysLeft = computeDaysLeft(item.nextPaymentDate);
+        const color = urgencyColor(daysLeft);
+        const label = urgencyLabel(daysLeft);
+        const listItem = item as TontineListItem & { userSharesCount?: number };
+        const amountDue =
+          listItem.amountPerShare * (listItem.userSharesCount ?? 1);
+
+        return (
+          <View style={styles.paymentDueBlock}>
+            {/* Date longue + décompte coloré */}
+            <View style={styles.paymentDueRow}>
+              <Ionicons name="calendar-outline" size={14} color={color} />
+              <Text style={[styles.paymentDueDate, { color }]}>
+                {formatDateLong(item.nextPaymentDate)}
+              </Text>
+            </View>
+            <View style={styles.paymentDueRow}>
+              <Ionicons name="time-outline" size={14} color={color} />
+              <Text style={[styles.paymentDueCountdown, { color }]}>
+                {label}
+              </Text>
+            </View>
+            {/* Montant dû */}
+            <View style={styles.paymentDueRow}>
+              <Ionicons name="wallet-outline" size={14} color="#1C1C1E" />
+              <Text style={styles.paymentDueAmount}>
+                {formatFcfa(amountDue)} à verser
+              </Text>
+              {item.hasPaymentDue && (
+                <View style={styles.penaltyPill}>
+                  <Ionicons name="warning-outline" size={11} color="#FFFFFF" />
+                  <Text style={styles.penaltyPillText}>Pénalités</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        );
+      })()}
       {item.membershipRole === 'CREATOR' && (
         <View style={styles.roleBadge}>
           <Text style={styles.roleText}>{t('tontineList.organizer', 'Organisateur')}</Text>
@@ -289,10 +353,47 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginBottom: 4,
   },
-  cardNext: {
+  paymentDueBlock: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  paymentDueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  paymentDueDate: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  paymentDueCountdown: {
     fontSize: 13,
-    color: '#6B7280',
-    marginTop: 4,
+    fontWeight: '700',
+  },
+  paymentDueAmount: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    flex: 1,
+  },
+  penaltyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#D0021B',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  penaltyPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   roleBadge: {
     alignSelf: 'flex-start',

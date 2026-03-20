@@ -168,6 +168,10 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
           url: ep.url,
           data: { sharesCount: clamped },
         });
+        // Actualise la liste des membres (parts) pour RotationReorderScreen et le panneau
+        await queryClient.invalidateQueries({
+          queryKey: ['members', tontineUid],
+        });
       } catch (err: unknown) {
         // Rollback en cas d'erreur
         setLocalShares((prev) => ({
@@ -200,7 +204,7 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
         setSavingSharesFor(null);
       }
     },
-    [tontineUid, showToast, t]
+    [tontineUid, showToast, t, queryClient]
   );
 
   // ── Modifier l'ordre de rotation ──────────────────────────────────────────
@@ -253,6 +257,9 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
               queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
               queryClient.invalidateQueries({
                 queryKey: ['cycle', 'current', tontineUid],
+              });
+              queryClient.invalidateQueries({
+                queryKey: ['report', tontineUid],
               });
 
               showToast(

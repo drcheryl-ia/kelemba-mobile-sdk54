@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import type { RootState } from '@/store/store';
@@ -326,6 +327,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
               queryClient.invalidateQueries({ queryKey: ['tontines'] });
               queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
               queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
+              queryClient.invalidateQueries({ queryKey: ['report', tontineUid] });
               refetchDetails();
               refetchMembers();
               showToast(
@@ -382,6 +384,18 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     refetchMembers();
     refetchPayments();
   }, [refetchDetails, refetchMembers, refetchPayments]);
+
+  // Recharger le rapport de rotation à chaque retour sur cet écran
+  // pour afficher les cycles immédiatement après activation.
+  useFocusEffect(
+    useCallback(() => {
+      if (tontine?.status === 'ACTIVE') {
+        queryClient.invalidateQueries({ queryKey: ['report', tontineUid] });
+        queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
+        queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
+      }
+    }, [tontine?.status, tontineUid, queryClient])
+  );
 
   if (detailsLoading || (tontine == null && !detailsError)) {
     return (
@@ -1024,7 +1038,15 @@ export const TontineDetailsScreen: React.FC<Props> = ({
                 const isLast = idx === reportCycles.length - 1;
 
                 return (
-                  <View key={cycle.cycleNumber} style={styles.timelineItem}>
+                  <Pressable
+                    key={cycle.cycleNumber}
+                    style={styles.timelineItem}
+                    onPress={() =>
+                      navigation.navigate('TontineRotation', { tontineUid })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Cycle ${cycle.cycleNumber}`}
+                  >
                     <View style={styles.timelineLeft}>
                       <View
                         style={[
@@ -1097,7 +1119,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
                         </Text>
                       )}
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>

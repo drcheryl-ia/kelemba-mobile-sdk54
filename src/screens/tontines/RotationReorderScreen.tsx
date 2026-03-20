@@ -1,7 +1,16 @@
 /**
- * Écran — réordonnancement manuel de la rotation (drag-and-drop).
+ * Écran — réordonnancement manuel de la rotation (drag-and-drop par slot).
+ *
+ * Chaque slot représente un tour de versement de la cagnotte.
+ * Un membre avec N parts apparaît N fois dans la liste :
+ *   - tour 1 → Marie (part 1/2)
+ *   - tour 2 → Jean  (part 1/1)
+ *   - tour 3 → Marie (part 2/2)
+ *
+ * L'envoi au backend utilise exclusivement orderedSlotMembershipUids
+ * (tableau des membership UIDs dans l'ordre des tours, avec répétitions).
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -24,7 +33,55 @@ import { parseApiError } from '@/api/errors/errorHandler';
 import { getInitials, hashToColor } from '@/utils/avatarUtils';
 import type { TontineMember } from '@/types/tontine';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/**
+ * Un slot = un tour de cagnotte.
+ * Chaque membre génère autant de slots que de parts détenues.
+ */
+interface RotationSlot {
+  /** Clé unique pour FlatList — membership uid + index de la part */
+  key: string;
+  /** UID du membership (répété pour les multi-parts) */
+  membershipUid: string;
+  /** Données du membre pour l'affichage */
+  member: TontineMember;
+  /** Numéro de cette part parmi toutes les parts du membre (1-based) */
+  shareIndex: number;
+  /** Nombre total de parts du membre */
+  totalShares: number;
+}
+
 type Props = NativeStackScreenProps<RootStackParamList, 'RotationReorderScreen'>;
+
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+/**
+ * Transforme la liste de membres en liste de slots draggables.
+ * L'ordre initial respecte le rotationOrder du serveur.
+ */
+function membersToSlots(members: TontineMember[]): RotationSlot[] {
+  const sorted = [...members].sort(
+    (a, b) => (a.rotationOrder ?? 0) - (b.rotationOrder ?? 0)
+  );
+
+  const slots: RotationSlot[] = [];
+  for (const member of sorted) {
+    const count = Math.max(1, member.sharesCount ?? 1);
+    for (let i = 0; i < count; i++) {
+      slots.push({
+        key: `${member.uid}-${i}`,
+        membershipUid: member.uid,
+        member,
+        shareIndex: i + 1,
+        totalShares: count,
+      });
+    }
+  }
+  return slots;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export const RotationReorderScreen: React.FC<Props> = ({
   navigation,
@@ -36,38 +93,44 @@ export const RotationReorderScreen: React.FC<Props> = ({
   const { members, isLoading } = useTontineMembers(tontineUid);
   const reorderMutation = useReorderRotation(tontineUid);
 
-  const sortedMembers = [...members].sort((a, b) => a.rotationOrder - b.rotationOrder);
-  const [localMembers, setLocalMembers] = useState<TontineMember[]>(sortedMembers);
+  // Membres actifs uniquement (pas les LEFT/EXPELLED)
+  const activeMembers = useMemo(
+    () =>
+      members.filter(
+        (m) =>
+          m.membershipStatus !== 'LEFT' && m.membershipStatus !== 'EXPELLED'
+      ),
+    [members]
+  );
 
+  const [slots, setSlots] = useState<RotationSlot[]>([]);
+
+  // Sync depuis le serveur (seulement si les UIDs changent)
+  const memberKey = activeMembers.map((m) => m.uid).join(',');
   useEffect(() => {
-    setLocalMembers(sortedMembers);
-  }, [members]);
+    setSlots(membersToSlots(activeMembers));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberKey]);
 
   const handleDragEnd = useCallback(
-    ({ data }: { data: TontineMember[] }) => {
-      setLocalMembers(data);
+    ({ data }: { data: RotationSlot[] }) => {
+      setSlots(data);
     },
     []
   );
 
   const handleSave = useCallback(() => {
-    if (localMembers.length < 2) {
+    if (slots.length < 2) {
       Alert.alert(
         t('common.error', 'Erreur'),
-        t('rotationReorder.minMembers', 'Au moins 2 membres requis.')
+        t('rotationReorder.minMembers', 'Au moins 2 slots requis.')
       );
       return;
     }
 
-    // Toujours utiliser orderedSlotMembershipUids (format prioritaire accepté par le backend
-    // pour mono ET multi-parts). orderedMemberUids est rejeté dès qu'un membre a sharesCount > 1.
-    const orderedSlotMembershipUids: string[] = [];
-    for (const m of localMembers) {
-      const count = Math.max(1, m.sharesCount ?? 1);
-      for (let i = 0; i < count; i++) {
-        orderedSlotMembershipUids.push(m.uid);
-      }
-    }
+    // orderedSlotMembershipUids = membership UID dans l'ordre des tours,
+    // avec répétitions pour les membres multi-parts.
+    const orderedSlotMembershipUids = slots.map((s) => s.membershipUid);
 
     reorderMutation.mutate(
       { orderedSlotMembershipUids },
@@ -75,56 +138,94 @@ export const RotationReorderScreen: React.FC<Props> = ({
         onSuccess: () => {
           Alert.alert(
             t('rotationReorder.successTitle', 'Ordre mis à jour'),
-            t('rotationReorder.successMessage', "L'ordre de rotation a été enregistré.")
+            t(
+              'rotationReorder.successMessage',
+              "L'ordre de rotation a été enregistré."
+            ),
+            [{ text: t('common.ok', 'OK'), onPress: () => navigation.goBack() }]
           );
-          navigation.goBack();
         },
         onError: (err: unknown) => {
           const apiErr = parseApiError(err);
-          if (apiErr.httpStatus === 400) {
-            Alert.alert(
-              t('common.error', 'Erreur'),
-              apiErr.message
-            );
-          } else {
-            Alert.alert(
-              t('common.error', 'Erreur'),
-              t('register.errorNetwork', 'Vérifiez votre connexion et réessayez.')
-            );
-          }
+          Alert.alert(
+            t('common.error', 'Erreur'),
+            apiErr.httpStatus === 400
+              ? apiErr.message
+              : t('register.errorNetwork', 'Vérifiez votre connexion et réessayez.')
+          );
         },
       }
     );
-  }, [localMembers, reorderMutation, navigation, t]);
+  }, [slots, reorderMutation, navigation, t]);
 
+  // ── Rendu d'un slot ─────────────────────────────────────────────────────────
   const renderItem = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<TontineMember>) => (
-      <Pressable
-        onLongPress={drag}
-        style={[styles.memberRow, isActive && styles.memberRowActive]}
-      >
-        <Ionicons name="reorder-three" size={24} color="#9E9E9E" />
-        <View
-          style={[styles.avatar, { backgroundColor: hashToColor(item.fullName) }]}
+    ({ item, drag, isActive, getIndex }: RenderItemParams<RotationSlot>) => {
+      const tourNumber = (getIndex?.() ?? 0) + 1;
+      const isMultiPart = item.totalShares > 1;
+      const isOrganizer = item.member.memberRole === 'CREATOR';
+
+      return (
+        <Pressable
+          onLongPress={drag}
+          disabled={reorderMutation.isPending}
+          style={[styles.slotRow, isActive && styles.slotRowActive]}
         >
-          <Text style={styles.avatarText}>{getInitials(item.fullName)}</Text>
-        </View>
-        <View style={styles.memberInfo}>
-          <Text style={styles.memberName}>{item.fullName}</Text>
-          <Text style={styles.positionText}>
-            #{item.rotationOrder} {item.memberRole === 'CREATOR' && '• Organisateur'}
-          </Text>
-        </View>
-      </Pressable>
-    ),
-    []
+          {/* Numéro du tour */}
+          <View style={styles.tourBadge}>
+            <Text style={styles.tourNumber}>{tourNumber}</Text>
+          </View>
+
+          {/* Avatar */}
+          <View
+            style={[
+              styles.avatar,
+              { backgroundColor: hashToColor(item.member.fullName) },
+            ]}
+          >
+            <Text style={styles.avatarText}>
+              {getInitials(item.member.fullName)}
+            </Text>
+          </View>
+
+          {/* Infos membre */}
+          <View style={styles.memberInfo}>
+            <Text style={styles.memberName} numberOfLines={1}>
+              {item.member.fullName}
+            </Text>
+            <View style={styles.metaRow}>
+              {isOrganizer && (
+                <View style={[styles.pill, styles.pillOrganizer]}>
+                  <Text style={styles.pillText}>Organisateur</Text>
+                </View>
+              )}
+              {isMultiPart && (
+                <View style={[styles.pill, styles.pillShare]}>
+                  <Text style={styles.pillText}>
+                    Part {item.shareIndex}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Handle drag */}
+          <Ionicons name="reorder-three" size={26} color="#9CA3AF" />
+        </Pressable>
+      );
+    },
+    [reorderMutation.isPending]
   );
 
+  // ── Chargement ────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={styles.backBtn}
+          >
             <Ionicons name="chevron-back" size={24} color="#1A6B3C" />
           </Pressable>
           <Text style={styles.headerTitle}>
@@ -138,8 +239,10 @@ export const RotationReorderScreen: React.FC<Props> = ({
     );
   }
 
+  // ── Rendu principal ───────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
       <View style={styles.header}>
         <Pressable
           onPress={() => navigation.goBack()}
@@ -149,24 +252,45 @@ export const RotationReorderScreen: React.FC<Props> = ({
           <Ionicons name="chevron-back" size={24} color="#1A6B3C" />
         </Pressable>
         <Text style={styles.headerTitle}>
-          {t('rotationReorder.title', "Modifier l'ordre")}
+          {t('rotationReorder.title', 'Ordre de rotation')}
         </Text>
       </View>
 
-      <Text style={styles.hint}>
-        {t('rotationReorder.hint', 'Maintenez appuyé pour déplacer un membre.')}
+      {/* Explication */}
+      <View style={styles.infoBanner}>
+        <Ionicons name="information-circle-outline" size={17} color="#92400E" />
+        <Text style={styles.infoBannerText}>
+          {t(
+            'rotationReorder.hint',
+            "Maintenez appuyé pour déplacer un tour. Un membre avec plusieurs parts apparaît autant de fois qu'il recevra la cagnotte."
+          )}
+        </Text>
+      </View>
+
+      {/* Compteur de tours */}
+      <Text style={styles.slotsCount}>
+        {slots.length} tour{slots.length > 1 ? 's' : ''} de versement
       </Text>
 
-      <DraggableFlatList
-        data={localMembers}
-        keyExtractor={(item) => item.uid}
-        renderItem={renderItem}
-        onDragEnd={handleDragEnd}
-      />
+      {/* Liste draggable des slots */}
+      <View style={styles.listWrapper}>
+        <DraggableFlatList
+          data={slots}
+          keyExtractor={(item) => item.key}
+          renderItem={renderItem}
+          onDragEnd={handleDragEnd}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      </View>
 
+      {/* Footer */}
       <View style={styles.footer}>
         <Pressable
-          style={[styles.saveBtn, reorderMutation.isPending && styles.saveBtnDisabled]}
+          style={[
+            styles.saveBtn,
+            reorderMutation.isPending && styles.saveBtnDisabled,
+          ]}
           onPress={handleSave}
           disabled={reorderMutation.isPending}
           accessibilityRole="button"
@@ -187,11 +311,10 @@ export const RotationReorderScreen: React.FC<Props> = ({
   );
 };
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F3F4F6',
-  },
+  container: { flex: 1, backgroundColor: '#F3F4F6' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -208,90 +331,100 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: 'center',
   },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1C1C1E',
-  },
-  hint: {
-    fontSize: 13,
-    color: '#6B7280',
-    paddingHorizontal: 20,
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#1C1C1E' },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FFF8E7',
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#F7F8FA',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FDE68A',
   },
-  memberRow: {
+  infoBannerText: { flex: 1, fontSize: 13, color: '#78350F', lineHeight: 18 },
+  slotsCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  listWrapper: {
+    flex: 1,
+  },
+  listContent: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 120 },
+  slotRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginVertical: 6,
-    padding: 16,
-    borderRadius: 12,
-    gap: 12,
-  },
-  memberRowActive: {
-    backgroundColor: '#E8F5EE',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+    gap: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  slotRowActive: {
+    backgroundColor: '#E8F5EE',
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  tourBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#1A6B3C',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  tourNumber: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  memberInfo: {
-    flex: 1,
+  avatarText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  memberInfo: { flex: 1, gap: 4 },
+  memberName: { fontSize: 15, fontWeight: '600', color: '#1C1C1E' },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
   },
-  memberName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1C1C1E',
-  },
-  positionText: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 2,
-  },
+  pill: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
+  pillOrganizer: { backgroundColor: '#1A6B3C' },
+  pillShare: { backgroundColor: '#F5A623' },
+  pillText: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
   footer: {
-    padding: 20,
+    padding: 16,
     paddingBottom: 32,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
+    flexShrink: 0,
   },
   saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#F5A623',
+    backgroundColor: '#1A6B3C',
     paddingVertical: 16,
-    borderRadius: 12,
-    minHeight: 52,
+    borderRadius: 28,
+    minHeight: 56,
   },
-  saveBtnDisabled: {
-    opacity: 0.7,
-  },
-  saveBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  loading: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  saveBtnDisabled: { opacity: 0.6 },
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });
