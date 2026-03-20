@@ -1320,14 +1320,14 @@ export const TontineDetailsScreen: React.FC<Props> = ({
         />
       )}
 
-      {showCotiserFAB && activeTab !== 'dashboard' && (
+      {showCotiserFAB && (
         <Pressable
           style={styles.fab}
           onPress={handleCotiser}
           accessibilityRole="button"
           accessibilityLabel={`${t('tontineDetails.contribute')} — ${formatFcfa(totalDue)}`}
         >
-          <Ionicons name="wallet-outline" size={22} color="#FFFFFF" />
+          <Ionicons name="card-outline" size={22} color="#FFFFFF" />
           <Text style={styles.fabText}>
             {t('tontineDetails.contribute')} — {formatFcfa(totalDue)}
           </Text>
@@ -2423,16 +2423,16 @@ const styles = StyleSheet.create({
     minHeight: 56,
     paddingHorizontal: 24,
     borderRadius: 28,
-    backgroundColor: KELEMBA_GREEN,
+    backgroundColor: '#F5A623',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
+    shadowColor: '#F5A623',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 6,
   },
   fabText: {
     fontSize: 16,
