@@ -187,8 +187,28 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
     membershipStatus: (
       raw.membershipStatus ?? 'ACTIVE'
     ) as TontineListItem['membershipStatus'],
-    hasPaymentDue: optionalBoolean(raw.hasPaymentDue),
-    nextPaymentDate: optionalNextPaymentDate(raw.nextPaymentDate),
+    hasPaymentDue: (() => {
+      const explicit = optionalBoolean(raw.hasPaymentDue);
+      if (explicit !== undefined) return explicit;
+      // Dériver depuis currentCycle.expectedDate si le backend
+      // ne retourne pas hasPaymentDue explicitement
+      const cycle = raw.currentCycle as
+        | { expectedDate?: string; status?: string }
+        | null
+        | undefined;
+      if (!cycle?.expectedDate) return undefined;
+      const today = new Date().toISOString().split('T')[0];
+      return cycle.expectedDate.split('T')[0] <= today;
+    })(),
+    nextPaymentDate: optionalNextPaymentDate(
+      raw.nextPaymentDate ??
+        (
+          raw.currentCycle as
+            | { expectedDate?: string }
+            | null
+            | undefined
+        )?.expectedDate
+    ),
     paymentStatus:
       raw.paymentStatus != null ? String(raw.paymentStatus) : undefined,
     daysLeft: optionalFiniteNumber(raw.daysLeft),

@@ -31,6 +31,7 @@ import {
   BalanceCard,
   QuickActions,
   TontinesList,
+  PaymentReminderBanner,
 } from '@/components/dashboard';
 import { GradientBorderCard } from '@/components/common/GradientBorderCard';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -293,6 +294,9 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
             );
           }}
         />
+
+        {/* ── Rappel cotisation ── */}
+        <PaymentReminderBanner />
 
         <TontinesList
           tontines={officialTontines}
