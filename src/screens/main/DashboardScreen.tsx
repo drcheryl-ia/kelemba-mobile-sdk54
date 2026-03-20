@@ -103,7 +103,7 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     () =>
       displayedTontines.filter(
         (t: TontineListItem) =>
-          t.status === 'ACTIVE' &&
+          (t.status === 'ACTIVE' || t.status === 'BETWEEN_ROUNDS') &&
           (t.membershipStatus === 'ACTIVE' || t.membershipStatus == null)
       ),
     [displayedTontines]

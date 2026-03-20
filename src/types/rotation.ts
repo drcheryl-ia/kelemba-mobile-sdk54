@@ -21,6 +21,8 @@ export type CycleDisplayStatus =
 export interface RotationCycle {
   uid: string;
   cycleNumber: number;
+  /** Indice de rotation globale (plusieurs rotations successives) */
+  rotationRound: number;
   beneficiaryUid: string;
   beneficiaryName: string;
   expectedDate: string;
@@ -48,6 +50,7 @@ export interface TontineRotationResponse {
   cycles: Array<{
     uid: string;
     cycleNumber: number;
+    rotationRound?: number;
     beneficiaryUid: string;
     beneficiaryName: string;
     expectedDate: string;
@@ -55,6 +58,8 @@ export interface TontineRotationResponse {
     collectedAmount: number;
     totalExpected: number;
     status: CycleStatus;
+    /** Statut d’affichage pré-calculé côté backend (optionnel) */
+    displayStatus?: string;
     delayedByMemberUids: string[];
     isCurrentUserBeneficiary: boolean;
   }>;

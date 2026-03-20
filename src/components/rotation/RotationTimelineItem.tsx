@@ -10,6 +10,8 @@ import type { RotationCycle, CycleDisplayStatus } from '@/types/rotation';
 export interface RotationTimelineItemProps {
   cycle: RotationCycle;
   showProgressBar: boolean;
+  /** Affiche le badge R{n} (rotation globale) à côté du libellé de tour */
+  showRotationBadge?: boolean;
 }
 
 const DISPLAY_CONFIG: Record<
@@ -44,6 +46,7 @@ const STATUS_KEYS: Record<CycleDisplayStatus, string> = {
 export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
   cycle,
   showProgressBar,
+  showRotationBadge = false,
 }) => {
   const { t } = useTranslation();
   const config = DISPLAY_CONFIG[cycle.displayStatus];
@@ -98,15 +101,25 @@ export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
         ]}
       >
         <View style={styles.header}>
-          <Text
-            style={[
-              styles.tourLabel,
-              isDarkCard && styles.textWhite,
-            ]}
-          >
-            {t('rotation.tourLabel', { number: cycle.cycleNumber })} :{' '}
-            {cycle.beneficiaryName}
-          </Text>
+          <View style={styles.labelRow}>
+            <Text
+              style={[
+                styles.tourLabel,
+                isDarkCard && styles.textWhite,
+              ]}
+              numberOfLines={2}
+            >
+              {t('rotation.tourLabel', { number: cycle.cycleNumber })} :{' '}
+              {cycle.beneficiaryName}
+            </Text>
+            {showRotationBadge ? (
+              <View style={styles.rotationRoundPill}>
+                <Text style={styles.rotationRoundPillText}>
+                  R{cycle.rotationRound}
+                </Text>
+              </View>
+            ) : null}
+          </View>
           <Animated.View
             style={[
               styles.badge,
@@ -204,12 +217,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 8,
+    gap: 8,
+  },
+  labelRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    minWidth: 0,
   },
   tourLabel: {
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
     color: '#1A1A1A',
+  },
+  rotationRoundPill: {
+    backgroundColor: '#E8F5EE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    flexShrink: 0,
+  },
+  rotationRoundPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1A6B3C',
   },
   textWhite: {
     color: '#FFFFFF',

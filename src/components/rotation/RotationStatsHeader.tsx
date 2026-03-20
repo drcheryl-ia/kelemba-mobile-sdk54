@@ -9,11 +9,16 @@ import { formatFcfa } from '@/utils/formatters';
 export interface RotationStatsHeaderProps {
   totalAmount: number;
   nextTourNumber: number;
+  /** Numéro de rotation globale courante (plusieurs rotations successives) */
+  currentRotation?: number;
+  /** Rotations entièrement terminées (optionnel, affichage futur) */
+  totalRotationsCompleted?: number;
 }
 
 export const RotationStatsHeader: React.FC<RotationStatsHeaderProps> = ({
   totalAmount,
   nextTourNumber,
+  currentRotation,
 }) => {
   const { t } = useTranslation();
   const formattedAmount = formatFcfa(totalAmount);
@@ -29,6 +34,13 @@ export const RotationStatsHeader: React.FC<RotationStatsHeaderProps> = ({
         <Text style={styles.valueRight}>
           {t('rotation.tourNumber', { number: nextTourNumber })}
         </Text>
+        {currentRotation != null && currentRotation > 1 ? (
+          <Text style={styles.rotationSubline}>
+            {t('rotation.rotationNumberLine', 'Rotation {{n}}', {
+              n: currentRotation,
+            })}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -71,5 +83,10 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  rotationSubline: {
+    marginTop: 4,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.7)',
   },
 });

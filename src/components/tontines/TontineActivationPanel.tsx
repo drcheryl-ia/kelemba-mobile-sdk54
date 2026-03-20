@@ -41,6 +41,8 @@ import type { TontineMember } from '@/types/tontine';
 const SHARES_MIN = 1;
 const SHARES_MAX = 5;
 
+export type TontineActivationPhase = 'DRAFT' | 'BETWEEN_ROUNDS';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface TontineInfo {
@@ -65,6 +67,8 @@ export interface TontineActivationPanelProps {
   navigation: NativeStackNavigationProp<RootStackParamList>;
   onSuccess: () => void;
   showToast: (msg: string, severity: 'error' | 'warning' | 'info') => void;
+  /** DRAFT = première activation ; BETWEEN_ROUNDS = nouvelle rotation */
+  activationPhase?: TontineActivationPhase;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,8 +108,11 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
   navigation,
   onSuccess,
   showToast,
+  activationPhase = 'DRAFT',
 }) => {
   const { t } = useTranslation();
+  const isBetweenRounds = activationPhase === 'BETWEEN_ROUNDS';
+  const nextRotationNumber = tontine.totalCycles + 1;
   const userUid = useSelector((state: RootState) => selectUserUid(state));
   const queryClient = useQueryClient();
 
@@ -231,15 +238,28 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
     }
 
     Alert.alert(
-      t('tontineActivation.activateConfirmTitle', 'Démarrer la tontine ?'),
-      t(
-        'tontineActivation.activateConfirmMessage',
-        'Les cycles seront créés et la tontine passera en statut Actif. Cette action est irréversible.'
-      ),
+      isBetweenRounds
+        ? t(
+            'tontineActivation.launchRotationTitle',
+            'Lancer la rotation {{n}} ?',
+            { n: nextRotationNumber }
+          )
+        : t('tontineActivation.activateConfirmTitle', 'Démarrer la tontine ?'),
+      isBetweenRounds
+        ? t(
+            'tontineActivation.launchRotationMessage',
+            'Une nouvelle série de cycles sera créée. Les membres et parts actuels seront conservés.'
+          )
+        : t(
+            'tontineActivation.activateConfirmMessage',
+            'Les cycles seront créés et la tontine passera en statut Actif. Cette action est irréversible.'
+          ),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
-          text: t('tontineActivation.activate', 'Activer'),
+          text: isBetweenRounds
+            ? t('tontineActivation.launchRotationConfirm', 'Lancer')
+            : t('tontineActivation.activate', 'Activer'),
           style: 'default',
           onPress: async () => {
             setIsActivating(true);
@@ -261,9 +281,20 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
               queryClient.invalidateQueries({
                 queryKey: ['report', tontineUid],
               });
+              queryClient.invalidateQueries({
+                queryKey: ['tontineRotation', tontineUid],
+              });
 
               showToast(
-                t('tontineActivation.activateSuccess', 'Tontine activée avec succès !'),
+                isBetweenRounds
+                  ? t(
+                      'tontineActivation.launchRotationSuccess',
+                      'Nouvelle rotation lancée !'
+                    )
+                  : t(
+                      'tontineActivation.activateSuccess',
+                      'Tontine activée avec succès !'
+                    ),
                 'info'
               );
               onSuccess();
@@ -324,6 +355,8 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
     showToast,
     onSuccess,
     t,
+    isBetweenRounds,
+    nextRotationNumber,
   ]);
 
   // ── Rendu d'un item ───────────────────────────────────────────────────────
@@ -471,11 +504,21 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
           </Text>
         </View>
         <View style={styles.summaryRow}>
-          <Ionicons name="calendar-outline" size={16} color="#6B7280" />
+          <Ionicons
+            name={isBetweenRounds ? 'checkmark-done-outline' : 'calendar-outline'}
+            size={16}
+            color="#6B7280"
+          />
           <Text style={styles.summarySub}>
-            {t('tontineActivation.startDate', 'Démarrage prévu le {{date}}', {
-              date: formatDateShort(tontine.startDate),
-            })}
+            {isBetweenRounds
+              ? t(
+                  'tontineActivation.previousRotationSummary',
+                  'Rotation {{n}} terminée',
+                  { n: tontine.totalCycles }
+                )
+              : t('tontineActivation.startDate', 'Démarrage prévu le {{date}}', {
+                  date: formatDateShort(tontine.startDate),
+                })}
           </Text>
         </View>
         <View style={styles.summaryRow}>
@@ -514,6 +557,18 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
         </Text>
       </View>
 
+      {isBetweenRounds ? (
+        <View style={styles.betweenRoundsInfo}>
+          <Ionicons name="information-circle-outline" size={18} color="#1A6B3C" />
+          <Text style={styles.betweenRoundsInfoText}>
+            {t(
+              'tontineActivation.betweenRoundsPartsHint',
+              'Les membres et parts restent inchangés. Vous pouvez modifier les parts avant de lancer.'
+            )}
+          </Text>
+        </View>
+      ) : null}
+
       {/* ── Bouton Modifier l'ordre ── */}
       <Pressable
         style={[
@@ -533,7 +588,15 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
 
       {/* ── Label section membres ── */}
       <Text style={styles.sharesNote}>
-        {t('tontineActivation.sharesNote', 'Parts (1–5) · Modifiez avant d\'activer')}
+        {isBetweenRounds
+          ? t(
+              'tontineActivation.sharesNoteBetweenRounds',
+              'Parts (1–5) · Ajustez avant de lancer la prochaine rotation'
+            )
+          : t(
+              'tontineActivation.sharesNote',
+              "Parts (1–5) · Modifiez avant d'activer"
+            )}
       </Text>
 
       {/* ── Liste membres ── */}
@@ -581,7 +644,15 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
           onPress={handleActivate}
           disabled={!canActivate}
           accessibilityRole="button"
-          accessibilityLabel={t('tontineActivation.activate', 'Activer la tontine')}
+          accessibilityLabel={
+            isBetweenRounds
+              ? t(
+                  'tontineActivation.launchNextRotationA11y',
+                  'Lancer la rotation {{n}}',
+                  { n: nextRotationNumber }
+                )
+              : t('tontineActivation.activate', 'Activer la tontine')
+          }
         >
           {isActivating ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
@@ -589,7 +660,13 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
             <>
               <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
               <Text style={styles.activateBtnText}>
-                {t('tontineActivation.activate', 'Activer la tontine')}
+                {isBetweenRounds
+                  ? t(
+                      'tontineActivation.launchNextRotation',
+                      'Lancer la rotation {{n}}',
+                      { n: nextRotationNumber }
+                    )
+                  : t('tontineActivation.activate', 'Activer la tontine')}
               </Text>
             </>
           )}
@@ -644,6 +721,25 @@ const styles = StyleSheet.create({
   summarySub: {
     fontSize: 13,
     color: '#6B7280',
+  },
+  betweenRoundsInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 12,
+    backgroundColor: '#E8F5EE',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C8E6D0',
+  },
+  betweenRoundsInfoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1A3C2E',
+    lineHeight: 18,
+    fontWeight: '500',
   },
   infoBanner: {
     flexDirection: 'row',

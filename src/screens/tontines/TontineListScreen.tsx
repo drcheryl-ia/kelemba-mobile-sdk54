@@ -196,7 +196,10 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
       list = list.filter((t) => (t.type ?? 'ROTATIVE') === typeFilter);
     }
     if (filter === 'draft') list = list.filter((t) => t.status === 'DRAFT');
-    else if (filter === 'active') list = list.filter((t) => t.status === 'ACTIVE');
+    else if (filter === 'active')
+      list = list.filter(
+        (t) => t.status === 'ACTIVE' || t.status === 'BETWEEN_ROUNDS'
+      );
     else if (filter === 'paused')
       list = list.filter((t) => ['ACTIVE', 'PAUSED'].includes(t.status));
     else if (filter === 'completed')
@@ -314,6 +317,7 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
         onPress={handleTontinePress}
         onInvitePress={handleInvitePress}
         PaymentDueBadge={PaymentDueBadge}
+        onNewRotationPress={handleTontinePress}
       />
     ),
     [handleTontinePress, handleInvitePress]

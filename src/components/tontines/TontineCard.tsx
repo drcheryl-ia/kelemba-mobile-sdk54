@@ -19,6 +19,7 @@ const FREQ_KEYS: Record<TontineFrequency, string> = {
 const STATUS_KEYS: Record<TontineStatus, string> = {
   DRAFT: 'tontineList.statusDraft',
   ACTIVE: 'tontineList.statusActive',
+  BETWEEN_ROUNDS: 'tontineList.statusBetweenRounds',
   PAUSED: 'tontineList.statusPaused',
   COMPLETED: 'tontineList.statusCompleted',
   CANCELLED: 'tontineList.statusCancelled',
@@ -27,6 +28,7 @@ const STATUS_KEYS: Record<TontineStatus, string> = {
 const STATUS_COLORS: Record<TontineStatus, string> = {
   DRAFT: '#9E9E9E',
   ACTIVE: '#1A6B3C',
+  BETWEEN_ROUNDS: '#F5A623',
   PAUSED: '#F5A623',
   COMPLETED: '#0055A5',
   CANCELLED: '#D0021B',
@@ -85,6 +87,8 @@ export interface TontineCardProps {
   onPress: (item: TontineListItem) => void;
   onInvitePress: (uid: string, name: string) => void;
   PaymentDueBadge?: React.ComponentType;
+  /** Créateur : CTA « Nouvelle rotation » (détail avec panneau d’activation) */
+  onNewRotationPress?: (item: TontineListItem) => void;
 }
 
 export const TontineCard: React.FC<TontineCardProps> = ({
@@ -92,6 +96,7 @@ export const TontineCard: React.FC<TontineCardProps> = ({
   onPress,
   onInvitePress,
   PaymentDueBadge,
+  onNewRotationPress,
 }) => {
   const { t } = useTranslation();
   const isDraft = item.status === 'DRAFT';
@@ -194,6 +199,78 @@ export const TontineCard: React.FC<TontineCardProps> = ({
           </Pressable>
         )}
       </Pressable>
+    );
+  }
+
+  // ── PRIORITÉ 3 : BETWEEN_ROUNDS (entre deux rotations) ────────────────
+  if (item.status === 'BETWEEN_ROUNDS') {
+    const isOrganizer =
+      item.isCreator ?? item.membershipRole === 'CREATOR';
+    const handleNewRotation = () => {
+      if (onNewRotationPress) onNewRotationPress(item);
+      else onPress(item);
+    };
+
+    const betweenRoundsNode = (
+      <View style={[styles.card, styles.cardActive]}>
+        <Pressable
+          onPress={() => onPress(item)}
+          accessibilityRole="button"
+          accessibilityLabel={item.name}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <View
+              style={[
+                styles.statusBadge,
+                { backgroundColor: '#F5A623' },
+              ]}
+            >
+              <Text style={styles.statusText}>
+                {t(
+                  'tontineList.betweenRoundsBadge',
+                  'Rotation terminée'
+                )}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.cardCycle}>
+            {t('tontineList.rotationCompletedLine', 'Rotation {{n}} complétée', {
+              n: item.totalCycles,
+            })}
+          </Text>
+          <Text style={styles.cardAmount}>
+            {formatFcfa(item.amountPerShare)} / {t('tontineList.part', 'part')}
+          </Text>
+          <Text style={styles.cardFreq}>{freqLabel}</Text>
+        </Pressable>
+        {isOrganizer ? (
+          <Pressable
+            style={styles.newRotationBtn}
+            onPress={handleNewRotation}
+            accessibilityRole="button"
+            accessibilityLabel={t(
+              'tontineList.newRotationCta',
+              'Nouvelle rotation'
+            )}
+          >
+            <Text style={styles.newRotationBtnText}>
+              {t('tontineList.newRotationCta', 'Nouvelle rotation')} →
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+
+    return (
+      <GradientBorderCard
+        style={styles.cardGradientWrapper}
+        innerStyle={styles.cardGradientInner}
+      >
+        {betweenRoundsNode}
+      </GradientBorderCard>
     );
   }
 
@@ -485,6 +562,21 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   inviteCtaText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  newRotationBtn: {
+    marginTop: 12,
+    alignSelf: 'stretch',
+    backgroundColor: '#1A6B3C',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newRotationBtnText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',

@@ -36,12 +36,13 @@ export const TontineRotationScreen: React.FC<Props> = ({
   const {
     rotationList,
     currentCycle,
-    nextCycle,
     totalAmount,
     memberCount,
     tontineName,
     currentCycleNumber,
     totalCycles,
+    currentRotationRound,
+    maxRotationRound,
     pendingReason,
     isDelayedByOthers,
     isLoading,
@@ -51,6 +52,7 @@ export const TontineRotationScreen: React.FC<Props> = ({
   } = useTontineRotation(tontineUid);
 
   const nextTourNumber = currentCycleNumber + 1;
+  const showRotationBadge = maxRotationRound > 1;
 
   if (isLoading) {
     return (
@@ -120,6 +122,7 @@ export const TontineRotationScreen: React.FC<Props> = ({
             <RotationStatsHeader
               totalAmount={totalAmount}
               nextTourNumber={nextTourNumber}
+              currentRotation={currentRotationRound}
             />
             {isDelayedByOthers && pendingReason && (
               <DelayBanner pendingReason={pendingReason} />
@@ -149,6 +152,7 @@ export const TontineRotationScreen: React.FC<Props> = ({
               showProgressBar={
                 item.displayStatus === 'PROCHAIN' && item.totalExpected > 0
               }
+              showRotationBadge={showRotationBadge}
             />
           </View>
         )}

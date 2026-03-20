@@ -14,16 +14,51 @@ function computeDisplayStatus(
   cycle: TontineRotationResponse['cycles'][0],
   currentCycleNumber: number
 ): CycleDisplayStatus {
-  const hasDelay = cycle.delayedByMemberUids.length > 0;
-  if (hasDelay) return 'RETARDÉ';
+  // Source de vérité n°1 : le backend calcule déjà
+  // displayStatus correctement — l'utiliser directement
+  // si présent et valide.
+  const backendStatus = cycle.displayStatus as CycleDisplayStatus | undefined;
+  const VALID: CycleDisplayStatus[] = [
+    'VERSÉ',
+    'EN_COURS',
+    'PROCHAIN',
+    'À_VENIR',
+    'RETARDÉ',
+  ];
+  if (backendStatus && VALID.includes(backendStatus)) {
+    return backendStatus;
+  }
 
-  if (cycle.status === 'PAYOUT_COMPLETED') return 'VERSÉ';
-  if (cycle.status === 'ACTIVE' || cycle.status === 'PAYOUT_IN_PROGRESS')
+  // Fallback client (si le backend ne renvoie pas displayStatus)
+  // Règle : vérifier les statuts terminaux EN PREMIER
+  // pour éviter qu'un ancien delayedByMemberUids ne prenne le dessus.
+
+  if (cycle.status === 'COMPLETED' || cycle.status === 'PAYOUT_COMPLETED') {
+    return 'VERSÉ';
+  }
+
+  if (cycle.status === 'SKIPPED') {
+    return 'À_VENIR';
+  }
+
+  // hasDelay uniquement pour les cycles encore en cours
+  const delayed = cycle.delayedByMemberUids ?? [];
+  const hasActiveDelay =
+    delayed.length > 0 &&
+    (cycle.status === 'ACTIVE' ||
+      cycle.status === 'PAYOUT_IN_PROGRESS' ||
+      cycle.status === 'PENDING');
+  if (hasActiveDelay) return 'RETARDÉ';
+
+  if (cycle.status === 'ACTIVE' || cycle.status === 'PAYOUT_IN_PROGRESS') {
     return 'EN_COURS';
+  }
+
   if (cycle.status === 'PENDING') {
     if (cycle.cycleNumber === currentCycleNumber + 1) return 'PROCHAIN';
-    if (cycle.cycleNumber > currentCycleNumber + 1) return 'À_VENIR';
+    return 'À_VENIR';
   }
+
   return 'À_VENIR';
 }
 
@@ -44,6 +79,7 @@ function mapToRotationCycle(
   return {
     uid: raw.uid,
     cycleNumber: raw.cycleNumber,
+    rotationRound: raw.rotationRound ?? 1,
     beneficiaryUid: raw.beneficiaryUid,
     beneficiaryName: raw.beneficiaryName,
     expectedDate: raw.expectedDate,
@@ -68,6 +104,10 @@ export interface UseTontineRotationReturn {
   tontineName: string;
   currentCycleNumber: number;
   totalCycles: number;
+  /** rotationRound du cycle courant (1 par défaut) */
+  currentRotationRound: number;
+  /** Max des rotationRound sur la timeline */
+  maxRotationRound: number;
   pendingReason: string | null;
   isDelayedByOthers: boolean;
   isCurrentUserBeneficiary: boolean;
@@ -115,6 +155,8 @@ export function useTontineRotation(tontineUid: string): UseTontineRotationReturn
         pendingReason: null,
         isDelayedByOthers: false,
         isCurrentUserBeneficiary: false,
+        currentRotationRound: 1,
+        maxRotationRound: 1,
       };
     }
 
@@ -146,6 +188,12 @@ export function useTontineRotation(tontineUid: string): UseTontineRotationReturn
     const totalCycles =
       data.rotationPlanLength ?? data.totalParts ?? data.totalCycles;
 
+    const currentRotationRound = currentCycle?.rotationRound ?? 1;
+    const maxRotationRound =
+      rotationList.length === 0
+        ? 1
+        : Math.max(...rotationList.map((c) => c.rotationRound), 1);
+
     return {
       rotationList,
       currentCycle,
@@ -156,6 +204,8 @@ export function useTontineRotation(tontineUid: string): UseTontineRotationReturn
       tontineName: data.tontineName,
       currentCycleNumber: data.currentCycleNumber,
       totalCycles,
+      currentRotationRound,
+      maxRotationRound,
       pendingReason,
       isDelayedByOthers,
       isCurrentUserBeneficiary,

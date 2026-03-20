@@ -69,6 +69,7 @@ const BORDER_RADIUS_SM = 12;
 const STATUS_COLORS: Record<TontineStatus, string> = {
   DRAFT: '#9E9E9E',
   ACTIVE: '#1A6B3C',
+  BETWEEN_ROUNDS: '#F5A623',
   PAUSED: '#F5A623',
   COMPLETED: '#0055A5',
   CANCELLED: '#D0021B',
@@ -77,6 +78,7 @@ const STATUS_COLORS: Record<TontineStatus, string> = {
 const STATUS_KEYS: Record<TontineStatus, string> = {
   DRAFT: 'tontineDetails.statusDraft',
   ACTIVE: 'tontineDetails.statusActive',
+  BETWEEN_ROUNDS: 'tontineDetails.statusBetweenRounds',
   PAUSED: 'tontineDetails.statusPaused',
   COMPLETED: 'tontineDetails.statusCompleted',
   CANCELLED: 'tontineDetails.statusCancelled',
@@ -389,7 +391,10 @@ export const TontineDetailsScreen: React.FC<Props> = ({
   // pour afficher les cycles immédiatement après activation.
   useFocusEffect(
     useCallback(() => {
-      if (tontine?.status === 'ACTIVE') {
+      if (
+        tontine?.status === 'ACTIVE' ||
+        tontine?.status === 'BETWEEN_ROUNDS'
+      ) {
         queryClient.invalidateQueries({ queryKey: ['report', tontineUid] });
         queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
         queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
@@ -432,8 +437,12 @@ export const TontineDetailsScreen: React.FC<Props> = ({
       ? `${members.length} ${t('tontineDetails.membersLabel', 'membres')} · ${formatFcfa(tontine.amountPerShare)}/part`
       : `${members.length} ${t('tontineDetails.membersLabel', 'membres')} · ${statusLabel}`;
 
-  // DRAFT + organisateur : afficher le panneau d'activation (pas les onglets)
-  if (isDraft && isCreator) {
+  const showActivationPanel =
+    (tontine.status === 'DRAFT' || tontine.status === 'BETWEEN_ROUNDS') &&
+    isCreator;
+
+  // DRAFT / BETWEEN_ROUNDS + organisateur : panneau d'activation (pas les onglets)
+  if (showActivationPanel) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
@@ -475,6 +484,9 @@ export const TontineDetailsScreen: React.FC<Props> = ({
             refetchMembers();
           }}
           showToast={showToast}
+          activationPhase={
+            tontine.status === 'BETWEEN_ROUNDS' ? 'BETWEEN_ROUNDS' : 'DRAFT'
+          }
         />
         <ErrorToast
           message={toastMessage}
@@ -830,6 +842,11 @@ export const TontineDetailsScreen: React.FC<Props> = ({
               <Text style={styles.emptyCycleText}>
                 {tontine.status === 'DRAFT'
                   ? t('tontineDetails.notStarted')
+                  : tontine.status === 'BETWEEN_ROUNDS'
+                    ? t(
+                        'tontineDetails.betweenRoundsMemberHint',
+                        'En attente du lancement de la prochaine rotation par l’organisateur.'
+                      )
                   : tontine.status === 'ACTIVE'
                     ? t('tontineDetails.noActiveCycle')
                     : t('tontineDetails.terminated')}

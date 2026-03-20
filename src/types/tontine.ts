@@ -91,6 +91,7 @@ export interface TontineReportSummary {
 export type TontineStatus =
   | 'DRAFT'
   | 'ACTIVE'
+  | 'BETWEEN_ROUNDS'
   | 'PAUSED'
   | 'COMPLETED'
   | 'CANCELLED';
