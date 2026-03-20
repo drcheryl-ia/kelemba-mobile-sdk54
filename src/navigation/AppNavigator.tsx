@@ -51,7 +51,15 @@ import {
   SwapRequestScreen,
   TontineContractSignatureScreen,
 } from '@/screens/tontines';
-import { PaymentScreen, PaymentStatusScreen } from '@/screens/payments';
+import {
+  PaymentScreen,
+  PaymentStatusScreen,
+  PaymentReminderScreen,
+} from '@/screens/payments';
+import {
+  registerFcmTapHandler,
+  handleInitialNotification,
+} from '@/services/fcmNotificationHandler';
 import {
   SavingsCreateScreen,
   SavingsDetailScreen,
@@ -322,6 +330,13 @@ export const AppNavigator: React.FC = () => {
   useNotificationHandler(navigationRef);
 
   useEffect(() => {
+    void handleInitialNotification(navigationRef);
+    const cleanup = registerFcmTapHandler(navigationRef);
+    return cleanup;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- enregistrement unique au montage
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
@@ -372,6 +387,11 @@ export const AppNavigator: React.FC = () => {
         <RootStack.Screen name="TontineTypeSelectionScreen" component={TontineTypeSelectionScreen} />
         <RootStack.Screen name="CreateTontine" component={CreateTontineScreen} />
         <RootStack.Screen name="TontineDetails" component={TontineDetailsScreen} />
+        <RootStack.Screen
+          name="PaymentReminderScreen"
+          component={PaymentReminderScreen}
+          options={{ headerShown: false, presentation: 'modal' }}
+        />
         <RootStack.Screen
           name="PaymentScreen"
           component={PaymentScreen}

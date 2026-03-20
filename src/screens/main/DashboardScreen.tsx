@@ -219,6 +219,10 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={styles.divider} />
 
+        {/* ── Rappel cotisation ── */}
+        <PaymentReminderBanner />
+
+        {/* ── Score Kelemba ── */}
         <GradientBorderCard style={styles.cardWrapper} innerStyle={styles.cardInner}>
           <ScoreCard
             score={userScore}
@@ -294,9 +298,6 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
             );
           }}
         />
-
-        {/* ── Rappel cotisation ── */}
-        <PaymentReminderBanner />
 
         <TontinesList
           tontines={officialTontines}

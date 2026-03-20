@@ -235,10 +235,14 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     if (tontine?.status !== 'ACTIVE') return false;
     if (!currentCycle || currentCycle.status !== 'ACTIVE') return false;
     if (!myMember) return false;
-    // Masquer si le membre est le bénéficiaire du cycle en cours
+    // Masquer si bénéficiaire du tour courant
     if (currentCycle.beneficiaryMembershipUid === myMember.uid) return false;
-    // Masquer si déjà payé
-    if (myMember.currentCyclePaymentStatus === 'COMPLETED') return false;
+    // Masquer si cotisation déjà réglée ou en cours de traitement
+    if (
+      myMember.currentCyclePaymentStatus === 'COMPLETED' ||
+      myMember.currentCyclePaymentStatus === 'PROCESSING'
+    )
+      return false;
     return true;
   }, [tontine?.status, currentCycle, myMember]);
 

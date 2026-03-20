@@ -69,6 +69,16 @@ export type RootStackParamList = {
   SavingsBalanceScreen: { tontineUid: string };
   SavingsContributeScreen: { tontineUid: string; periodUid: string };
   SavingsWithdrawScreen: { tontineUid: string };
+  PaymentReminderScreen: {
+    tontineUid: string;
+    tontineName: string;
+    cycleUid: string;
+    amountDue: number;
+    penaltyAmount: number;
+    dueDate: string;
+    cycleNumber: number;
+    reminderDay?: 'J-2' | 'J-1' | 'J' | string;
+  };
   PaymentScreen: {
     cycleUid: string;
     tontineUid: string;

@@ -137,6 +137,8 @@ export interface TontineListItem {
   nextPaymentDate?: string | null;
   /** Statut paiement cycle courant si exposé par l'API */
   paymentStatus?: string;
+  /** Aligné membre / cycle courant (backend) */
+  currentCyclePaymentStatus?: PaymentStatus | null;
   daysLeft?: number | null;
   daysOverdue?: number | null;
   penaltyAmount?: number | null;

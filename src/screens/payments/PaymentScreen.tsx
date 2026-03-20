@@ -153,10 +153,29 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
           [{ text: t('common.ok') }]
         );
       } else if (apiErr.httpStatus === 409) {
+        const isDuplicate = apiErr.code === ApiErrorCode.PAYMENT_DUPLICATE;
         Alert.alert(
-          t('payment.inProgress', 'Paiement en cours'),
-          t('payment.inProgressMessage', 'Un paiement est déjà en cours pour ce cycle.'),
-          [{ text: t('common.ok') }]
+          isDuplicate
+            ? t('payment.alreadyPaidTitle', 'Cotisation déjà réglée')
+            : t('payment.inProgress', 'Paiement en cours'),
+          isDuplicate
+            ? t(
+                'payment.alreadyPaidMessage',
+                "Votre cotisation pour ce cycle a déjà été enregistrée. L'historique et le score ne seront pas modifiés."
+              )
+            : t('payment.inProgressMessage', 'Un paiement est déjà en cours pour ce cycle.'),
+          [
+            {
+              text: t('common.ok'),
+              onPress: isDuplicate
+                ? () => {
+                    queryClient.invalidateQueries({ queryKey: ['tontines'] });
+                    queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+                    navigation.goBack();
+                  }
+                : undefined,
+            },
+          ]
         );
       } else if (apiErr.httpStatus === 400) {
         Alert.alert(t('common.error'), apiErr.message, [{ text: t('common.ok') }]);

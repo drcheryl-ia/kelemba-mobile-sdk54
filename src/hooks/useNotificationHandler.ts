@@ -1,5 +1,6 @@
 /**
- * Hook — écoute les notifications push et navigue selon le type.
+ * Hook — notifications en foreground (audit + logs).
+ * Tap / cold start : @/services/fcmNotificationHandler (registerFcmTapHandler, handleInitialNotification).
  * Compatible Expo SDK 54 · expo-notifications.
  */
 import { useEffect, useRef } from 'react';
@@ -38,76 +39,10 @@ interface NotificationData {
   paymentUid?: string;
 }
 
-function navigateFromNotification(
-  nav: NavigationContainerRefWithCurrent<RootStackParamList>,
-  data: NotificationData
-): void {
-  const type = data?.type;
-  if (!type) return;
-
-  logger.info('[Notification] Tap reçu', { type, tontineUid: data.tontineUid });
-
-  switch (type) {
-    case 'PAYMENT_REMINDER':
-    case 'PAYMENT_RECEIVED':
-    case 'POT_AVAILABLE':
-    case 'POT_DELAYED':
-    case 'PENALTY_APPLIED':
-    case 'ROTATION_CHANGED':
-      if (data.tontineUid) {
-        nav.navigate('TontineDetails', {
-          tontineUid: data.tontineUid,
-          isCreator: false,
-        });
-      }
-      break;
-
-    case 'TONTINE_INVITATION':
-      nav.navigate('MainTabs', {
-        screen: 'Tontines',
-        params: { initialTab: 'invitations' },
-      });
-      break;
-
-    case 'KYC_UPDATE':
-      nav.navigate('MainTabs', {
-        screen: 'Profile',
-        params: {
-          screen: 'KycUpload',
-          params: undefined,
-        },
-      });
-      break;
-
-    case 'SCORE_UPDATE':
-      nav.navigate('MainTabs', {
-        screen: 'Profile',
-        params: {
-          screen: 'ScoreHistory',
-          params: undefined,
-        },
-      });
-      break;
-
-    case 'SYSTEM':
-    default:
-      break;
-  }
-}
-
-function tryNavigate(
-  nav: NavigationContainerRefWithCurrent<RootStackParamList>,
-  data: NotificationData
-): void {
-  if (!nav.isReady()) return;
-  navigateFromNotification(nav, data);
-}
-
 export function useNotificationHandler(
-  navigationRef: NavigationContainerRefWithCurrent<RootStackParamList>
+  _navigationRef: NavigationContainerRefWithCurrent<RootStackParamList>
 ): void {
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
-  const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
   useEffect(() => {
     notificationListener.current = Notifications.addNotificationReceivedListener(
@@ -124,31 +59,9 @@ export function useNotificationHandler(
       }
     );
 
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const data = response.notification.request.content.data as NotificationData;
-        const nav = navigationRef;
-        if (!nav.isReady()) {
-          setTimeout(() => {
-            tryNavigate(navigationRef, data);
-          }, 500);
-          return;
-        }
-        navigateFromNotification(nav, data);
-      }
-    );
-
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
-      const data = response.notification.request.content.data as NotificationData;
-      tryNavigate(navigationRef, data);
-    });
-
     return () => {
       notificationListener.current?.remove();
-      responseListener.current?.remove();
       notificationListener.current = null;
-      responseListener.current = null;
     };
-  }, [navigationRef]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- enregistrement unique ; ref stable (createNavigationContainerRef)
 }

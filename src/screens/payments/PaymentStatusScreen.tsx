@@ -134,15 +134,23 @@ export const PaymentStatusScreen: React.FC<Props> = ({
   );
 
   const handleViewReceipt = () => {
+    // Invalidation complète après paiement confirmé
     queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
     queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
     queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });
+    queryClient.invalidateQueries({ queryKey: ['tontines'] });
+    queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+    queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
+    queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
     navigation.pop(2);
   };
 
   const handleBackToTontine = () => {
     queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
     queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
+    queryClient.invalidateQueries({ queryKey: ['tontines'] });
+    queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+    queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
     navigation.pop(2);
   };
 

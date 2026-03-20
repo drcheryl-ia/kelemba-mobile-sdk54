@@ -15,6 +15,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useNextPayment } from '@/hooks/useNextPayment';
+import { useTontines } from '@/hooks/useTontines';
+import type { NextPaymentData } from '@/types/payment';
 import { formatFcfa } from '@/utils/formatters';
 import { logger } from '@/utils/logger';
 
@@ -88,17 +90,71 @@ function getDueLabel(daysUntilDue: number): string {
   return `Dans ${daysUntilDue} jours`;
 }
 
+/** Données construites depuis /tontines/me quand /next-payment renvoie 204 */
+type PaymentReminderFallback = {
+  tontineUid: string;
+  tontineName: string;
+  daysUntilDue: number;
+  amountDue: number;
+  totalDue: number;
+  penaltyAmount: number;
+  dueDate: string;
+};
+
+type PaymentReminderSource = NextPaymentData | PaymentReminderFallback;
+
 // ── Composant ─────────────────────────────────────────────────────
 export const PaymentReminderBanner: React.FC = () => {
   const navigation = useNavigation();
   const { nextPayment, isLoading } = useNextPayment();
+  const { tontines } = useTontines();
+
+  // ── Fallback tontines quand l'endpoint /next-payment retourne null ──
+  const fallbackPayment = React.useMemo((): PaymentReminderFallback | null => {
+    if (nextPayment) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const WINDOW_DAYS = 7;
+
+    for (const t of tontines) {
+      if (t.status !== 'ACTIVE') continue;
+      const dateStr = t.nextPaymentDate;
+      if (!dateStr) continue;
+      const due = new Date(`${dateStr.split('T')[0]}T00:00:00`);
+      const diff = Math.round(
+        (due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (diff <= WINDOW_DAYS) {
+        // Ne pas afficher la bannière si cotisation déjà réglée
+        // currentCyclePaymentStatus est maintenant alimenté par le backend
+        if (t.currentCyclePaymentStatus === 'COMPLETED') continue;
+        return {
+          tontineUid: t.uid,
+          tontineName: t.name,
+          daysUntilDue: diff,
+          amountDue: t.amountPerShare * (t.userSharesCount ?? 1),
+          totalDue: t.amountPerShare * (t.userSharesCount ?? 1),
+          penaltyAmount: 0,
+          dueDate: dateStr.split('T')[0],
+        };
+      }
+    }
+    return null;
+  }, [nextPayment, tontines]);
+
+  const payment: PaymentReminderSource | null = nextPayment ?? fallbackPayment;
+
+  const daysUntilDue =
+    nextPayment != null
+      ? computeDaysUntilDue(nextPayment.dueDate)
+      : (fallbackPayment?.daysUntilDue ?? 0);
 
   // Animation d'entrée
   const slideAnim = useRef(new Animated.Value(-8)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!nextPayment) return;
+    if (!payment) return;
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: 0,
@@ -111,13 +167,12 @@ export const PaymentReminderBanner: React.FC = () => {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [nextPayment, slideAnim, opacityAnim]);
+  }, [payment, slideAnim, opacityAnim]);
 
   // Pulse sur overdue
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (!nextPayment) return;
-    const daysUntilDue = computeDaysUntilDue(nextPayment.dueDate);
+    if (!payment) return;
     const urgency = getUrgency(daysUntilDue);
     if (urgency !== 'overdue' && urgency !== 'today') return;
     Animated.loop(
@@ -134,22 +189,21 @@ export const PaymentReminderBanner: React.FC = () => {
         }),
       ])
     ).start();
-  }, [nextPayment, pulseAnim]);
+  }, [payment, daysUntilDue, pulseAnim]);
 
-  if (isLoading || !nextPayment) return null;
+  if (isLoading || !payment) return null;
 
-  const daysUntilDue = computeDaysUntilDue(nextPayment.dueDate);
   const urgency = getUrgency(daysUntilDue);
   const colors = URGENCY_COLORS[urgency];
   const dueLabel = getDueLabel(daysUntilDue);
-  const amount = nextPayment.totalDue ?? nextPayment.amountDue ?? 0;
+  const amount = payment.totalDue ?? payment.amountDue ?? 0;
 
   const handleCotiser = () => {
     logger.info('[PaymentReminderBanner] Cotiser pressed', {
-      tontineUid: nextPayment.tontineUid,
+      tontineUid: payment.tontineUid,
     });
     (navigation as Nav).navigate('TontineDetails', {
-      tontineUid: nextPayment.tontineUid,
+      tontineUid: payment.tontineUid,
       isCreator: false,
     });
   };
@@ -174,7 +228,7 @@ export const PaymentReminderBanner: React.FC = () => {
       <View style={styles.textBlock}>
         <Text style={[styles.dueLabel, { color: colors.text }]} numberOfLines={1}>
           {dueLabel}
-          {nextPayment.tontineName ? ` — ${nextPayment.tontineName}` : ''}
+          {payment.tontineName ? ` — ${payment.tontineName}` : ''}
         </Text>
         {amount > 0 && (
           <Text style={[styles.amountLabel, { color: colors.circle }]}>
@@ -188,7 +242,7 @@ export const PaymentReminderBanner: React.FC = () => {
         onPress={handleCotiser}
         style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
         accessibilityRole="button"
-        accessibilityLabel={`Cotiser — ${nextPayment.tontineName}`}
+        accessibilityLabel={`Cotiser — ${payment.tontineName}`}
         hitSlop={12}
       >
         <Text style={[styles.ctaText, { color: colors.text }]}>Cotiser</Text>
