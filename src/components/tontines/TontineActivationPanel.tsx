@@ -273,6 +273,11 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
               await initializeCycles(tontineUid);
 
               queryClient.invalidateQueries({ queryKey: ['tontines'] });
+              queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+              queryClient.invalidateQueries({ queryKey: ['tontines', 'active'] });
+              queryClient.invalidateQueries({ queryKey: ['payments', 'pending'] });
+              queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
+              queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
               queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
               queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
               queryClient.invalidateQueries({

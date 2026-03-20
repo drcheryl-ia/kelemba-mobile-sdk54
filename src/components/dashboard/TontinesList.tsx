@@ -1,10 +1,14 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 import { GradientBorderCard } from '@/components/common/GradientBorderCard';
 import { isMembershipPending } from '@/utils/tontineMerge';
+import {
+  deriveTontinePaymentUiState,
+  type BadgeTone,
+} from '@/utils/tontinePaymentState';
 import type { TontineFrequency } from '@/api/types/api.types';
 import type { TontineListItem } from '@/types/tontine';
 
@@ -24,6 +28,19 @@ const frequencyLabel: Record<TontineFrequency, string> = {
   BIWEEKLY: '/ quinzaine',
   MONTHLY: '/ mois',
 };
+
+function badgeStyleForTone(tone: BadgeTone) {
+  switch (tone) {
+    case 'success':
+      return styles.badgeGreen;
+    case 'danger':
+      return styles.badgeRed;
+    case 'warning':
+      return styles.badgeOrange;
+    default:
+      return styles.badgeGray;
+  }
+}
 
 export const TontinesList: React.FC<TontinesListProps> = ({
   tontines,
@@ -77,11 +94,24 @@ export const TontinesList: React.FC<TontinesListProps> = ({
         ) : (
           tontines.slice(0, 3).map((tontine) => {
           const isPending = isMembershipPending(tontine);
+          const payUi = deriveTontinePaymentUiState(tontine);
+          const dateLine =
+            payUi.displayDate ??
+            (payUi.uiStatus === 'UNKNOWN'
+              ? t('dashboard.paymentDateUnavailable', 'Date indisponible')
+              : '—');
           return (
             <GradientBorderCard
               key={tontine.uid}
               style={styles.tontineCardWrapper}
-              innerStyle={[styles.tontineCardInner, isPending && styles.tontineCardPending]}
+              innerStyle={
+                (isPending
+                  ? {
+                      ...StyleSheet.flatten(styles.tontineCardInner),
+                      ...StyleSheet.flatten(styles.tontineCardPending),
+                    }
+                  : styles.tontineCardInner) as ViewStyle
+              }
             >
               <Pressable
                 onPress={() => {
@@ -121,22 +151,11 @@ export const TontinesList: React.FC<TontinesListProps> = ({
               <View style={styles.cardFooter}>
                 <View>
                   <Text style={styles.footerLabel}>PROCHAIN VERSEMENT</Text>
-                  <Text style={styles.nextDate}>
-                    {tontine.nextPaymentDate ?? '—'}
-                  </Text>
+                  <Text style={styles.nextDate}>{dateLine}</Text>
                 </View>
-                {tontine.hasPaymentDue !== undefined && (
-                  <View
-                    style={[
-                      styles.badge,
-                      !tontine.hasPaymentDue ? styles.badgeGreen : styles.badgeOrange,
-                    ]}
-                  >
-                    <Text style={styles.badgeText}>
-                      {!tontine.hasPaymentDue ? '✓ À jour' : '⚠ En retard'}
-                    </Text>
-                  </View>
-                )}
+                <View style={[styles.badge, badgeStyleForTone(payUi.badgeTone)]}>
+                  <Text style={styles.badgeText}>{payUi.badgeLabel}</Text>
+                </View>
               </View>
             </Pressable>
           </GradientBorderCard>
@@ -244,6 +263,12 @@ const styles = StyleSheet.create({
   },
   badgeOrange: {
     backgroundColor: '#FEF3C7',
+  },
+  badgeRed: {
+    backgroundColor: '#FEE2E2',
+  },
+  badgeGray: {
+    backgroundColor: '#F3F4F6',
   },
   badgeText: {
     fontSize: 12,

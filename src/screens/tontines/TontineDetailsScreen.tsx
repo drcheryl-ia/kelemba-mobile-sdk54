@@ -232,11 +232,15 @@ export const TontineDetailsScreen: React.FC<Props> = ({
   );
 
   const showCotiserFAB = useMemo(() => {
+    if (tontine?.status !== 'ACTIVE') return false;
     if (!currentCycle || currentCycle.status !== 'ACTIVE') return false;
     if (!myMember) return false;
-    const s = myMember.currentCyclePaymentStatus;
-    return s === 'PENDING' || s === 'FAILED';
-  }, [currentCycle, myMember]);
+    // Masquer si le membre est le bénéficiaire du cycle en cours
+    if (currentCycle.beneficiaryMembershipUid === myMember.uid) return false;
+    // Masquer si déjà payé
+    if (myMember.currentCyclePaymentStatus === 'COMPLETED') return false;
+    return true;
+  }, [tontine?.status, currentCycle, myMember]);
 
   const totalDue = useMemo(() => {
     if (nextPayment?.tontineUid === tontineUid) return nextPayment.totalDue;
@@ -327,6 +331,11 @@ export const TontineDetailsScreen: React.FC<Props> = ({
               }
               await initializeCycles(tontineUid);
               queryClient.invalidateQueries({ queryKey: ['tontines'] });
+              queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+              queryClient.invalidateQueries({ queryKey: ['tontines', 'active'] });
+              queryClient.invalidateQueries({ queryKey: ['payments', 'pending'] });
+              queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
+              queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
               queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
               queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
               queryClient.invalidateQueries({ queryKey: ['report', tontineUid] });

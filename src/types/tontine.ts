@@ -113,6 +113,13 @@ export const ORIGIN_INVITE: InvitationOrigin = 'INVITE';
 /** Demande lien/QR : action de l'organisateur → activation après approbation */
 export const ORIGIN_JOIN_REQUEST: InvitationOrigin = 'JOIN_REQUEST';
 
+export type TontinePaymentUiStatus =
+  | 'UP_TO_DATE'
+  | 'DUE_SOON'
+  | 'DUE_TODAY'
+  | 'OVERDUE'
+  | 'UNKNOWN';
+
 export interface TontineListItem {
   uid: string;
   name: string;
@@ -124,8 +131,20 @@ export interface TontineListItem {
   currentCycle: number | null;
   membershipRole: MemberRole;
   membershipStatus: MembershipStatus;
-  hasPaymentDue: boolean;
-  nextPaymentDate: string | null;
+  /** `undefined` = backend n'a pas renvoyé le champ — ne pas traiter comme « à jour » */
+  hasPaymentDue?: boolean;
+  /** `undefined` = absent ; `null` = explicitement sans date côté API */
+  nextPaymentDate?: string | null;
+  /** Statut paiement cycle courant si exposé par l'API */
+  paymentStatus?: string;
+  daysLeft?: number | null;
+  daysOverdue?: number | null;
+  penaltyAmount?: number | null;
+  totalAmountDue?: number | null;
+  /** Parts du membre connecté (montant = amountPerShare × userSharesCount) */
+  userSharesCount?: number;
+  /** Peut être pré-calculé côté API ; l'UI préfère `deriveTontinePaymentUiState` */
+  paymentUiStatus?: TontinePaymentUiStatus;
   isCreator?: boolean;
   canInvite?: boolean;
   startDate?: string;

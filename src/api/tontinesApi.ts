@@ -146,6 +146,25 @@ export const initializeCycles = async (
   }
 };
 
+function optionalBoolean(v: unknown): boolean | undefined {
+  if (v === true || v === false) return v;
+  return undefined;
+}
+
+/** Date prochain versement : ne pas confondre absent API (`undefined`) et null explicite. */
+function optionalNextPaymentDate(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  return String(v).split('T')[0];
+}
+
+function optionalFiniteNumber(v: unknown): number | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem {
   // ⚠️ NE PAS confondre : AccountType (global) vs MemberRole (dans une tontine)
   return {
@@ -168,8 +187,20 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
     membershipStatus: (
       raw.membershipStatus ?? 'ACTIVE'
     ) as TontineListItem['membershipStatus'],
-    hasPaymentDue: Boolean(raw.hasPaymentDue),
-    nextPaymentDate: (raw.nextPaymentDate ?? null) as string | null,
+    hasPaymentDue: optionalBoolean(raw.hasPaymentDue),
+    nextPaymentDate: optionalNextPaymentDate(raw.nextPaymentDate),
+    paymentStatus:
+      raw.paymentStatus != null ? String(raw.paymentStatus) : undefined,
+    daysLeft: optionalFiniteNumber(raw.daysLeft),
+    daysOverdue: optionalFiniteNumber(raw.daysOverdue),
+    penaltyAmount: optionalFiniteNumber(raw.penaltyAmount),
+    totalAmountDue: optionalFiniteNumber(
+      raw.totalAmountDue ?? raw.totalDue ?? raw.amountDueTotal
+    ),
+    userSharesCount:
+      optionalFiniteNumber(
+        raw.userSharesCount ?? raw.sharesCount ?? raw.memberSharesCount
+      ) ?? undefined,
     isCreator: Boolean(raw.isCreator),
     canInvite: Boolean(raw.canInvite),
     startDate: raw.startDate as string | undefined,

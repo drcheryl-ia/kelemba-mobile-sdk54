@@ -12,6 +12,10 @@ export interface AlertBannerProps {
   penaltyAmount?: number;
   /** Total = amount + penaltyAmount */
   totalDue?: number;
+  /** Surcharge titre (ex. Versement en retard — nom) */
+  titleOverride?: string;
+  /** Surcharge ligne montants / échéance */
+  amountLineOverride?: string;
   onCotiserPress: () => void;
   isVisible: boolean;
 }
@@ -34,6 +38,8 @@ export const AlertBanner: React.FC<AlertBannerProps> = ({
   amount,
   penaltyAmount = 0,
   totalDue,
+  titleOverride,
+  amountLineOverride,
   onCotiserPress,
   isVisible,
 }) => {
@@ -65,8 +71,10 @@ export const AlertBanner: React.FC<AlertBannerProps> = ({
           ? 'Demain'
           : `Dans ${daysLeft} jours`;
 
-  const headline = `Versement ${daysText.toLowerCase()} — ${tontineName}`;
-  const amountLine = formatAmountLine(amount, penaltyAmount, totalDue);
+  const headline =
+    titleOverride ?? `Versement ${daysText.toLowerCase()} — ${tontineName}`;
+  const amountLine =
+    amountLineOverride ?? formatAmountLine(amount, penaltyAmount, totalDue);
 
   return (
     <View style={[styles.container, { backgroundColor: urgencyBg }]}>

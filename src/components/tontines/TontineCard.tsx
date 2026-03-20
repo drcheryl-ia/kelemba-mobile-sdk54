@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { isMembershipPending } from '@/utils/tontineMerge';
 import { GradientBorderCard } from '@/components/common/GradientBorderCard';
+import { deriveTontinePaymentUiState } from '@/utils/tontinePaymentState';
 import type { TontineListItem, TontineStatus, TontineFrequency } from '@/types/tontine';
 
 const FREQ_KEYS: Record<TontineFrequency, string> = {
@@ -46,21 +47,6 @@ function formatDateLong(dateStr: string): string {
     month: 'long',
     year: 'numeric',
   });
-}
-
-/**
- * Calcule le nombre de jours restants depuis une date ISO retournée
- * par le serveur. Retourne null si dateStr est absent.
- * On tronque les deux dates à minuit UTC pour ignorer l'heure.
- */
-function computeDaysLeft(dateStr: string | null | undefined): number | null {
-  if (!dateStr) return null;
-  const due = new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
-  const now = new Date();
-  const todayUTC = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  );
-  return Math.round((due.getTime() - todayUTC.getTime()) / 86_400_000);
 }
 
 function urgencyColor(daysLeft: number | null): string {
@@ -103,6 +89,7 @@ export const TontineCard: React.FC<TontineCardProps> = ({
   const statusLabel = t(STATUS_KEYS[item.status]);
   const statusColor = STATUS_COLORS[item.status];
   const freqLabel = t(FREQ_KEYS[item.frequency ?? 'MONTHLY']);
+  const payState = deriveTontinePaymentUiState(item);
 
   // ── PRIORITÉ 1 : membership PENDING — grisage systématique ──────────
   const isMembershipPendingState = isMembershipPending(item);
@@ -275,6 +262,11 @@ export const TontineCard: React.FC<TontineCardProps> = ({
   }
 
   const isActiveConfirmed = item.status === 'ACTIVE';
+  const showPaymentDetails =
+    isActiveConfirmed &&
+    (payState.rawPaymentDate != null ||
+      payState.needsPaymentAttention ||
+      payState.uiStatus === 'UP_TO_DATE');
 
   const cardNode = (
     <Pressable
@@ -303,46 +295,69 @@ export const TontineCard: React.FC<TontineCardProps> = ({
         {formatFcfa(item.amountPerShare)} / {t('tontineList.part', 'part')}
       </Text>
       <Text style={styles.cardFreq}>{freqLabel}</Text>
-      {item.hasPaymentDue && PaymentDueBadge && <PaymentDueBadge />}
-      {item.nextPaymentDate && (() => {
-        const daysLeft = computeDaysLeft(item.nextPaymentDate);
+      {payState.needsPaymentAttention && PaymentDueBadge && <PaymentDueBadge />}
+      {showPaymentDetails && payState.rawPaymentDate && (() => {
+        const daysLeft = payState.daysLeft;
         const color = urgencyColor(daysLeft);
-        const label = urgencyLabel(daysLeft);
-        const listItem = item as TontineListItem & { userSharesCount?: number };
+        const label =
+          daysLeft === null
+            ? ''
+            : urgencyLabel(daysLeft);
         const amountDue =
-          listItem.amountPerShare * (listItem.userSharesCount ?? 1);
+          item.totalAmountDue != null && Number.isFinite(item.totalAmountDue)
+            ? item.totalAmountDue - (item.penaltyAmount ?? 0)
+            : item.amountPerShare * (item.userSharesCount ?? 1);
+        const penalty = item.penaltyAmount ?? 0;
 
         return (
           <View style={styles.paymentDueBlock}>
-            {/* Date longue + décompte coloré */}
             <View style={styles.paymentDueRow}>
               <Ionicons name="calendar-outline" size={14} color={color} />
               <Text style={[styles.paymentDueDate, { color }]}>
-                {formatDateLong(item.nextPaymentDate)}
+                {formatDateLong(payState.rawPaymentDate)}
               </Text>
             </View>
-            <View style={styles.paymentDueRow}>
-              <Ionicons name="time-outline" size={14} color={color} />
-              <Text style={[styles.paymentDueCountdown, { color }]}>
-                {label}
-              </Text>
-            </View>
-            {/* Montant dû */}
+            {label ? (
+              <View style={styles.paymentDueRow}>
+                <Ionicons name="time-outline" size={14} color={color} />
+                <Text style={[styles.paymentDueCountdown, { color }]}>
+                  {label}
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.paymentDueRow}>
               <Ionicons name="wallet-outline" size={14} color="#1C1C1E" />
               <Text style={styles.paymentDueAmount}>
-                {formatFcfa(amountDue)} à verser
+                {formatFcfa(amountDue)}
+                {penalty > 0
+                  ? ` + ${formatFcfa(penalty)} ${t('tontineDetails.penalty', 'pénalité')}`
+                  : ''}{' '}
+                {t('tontineList.toPaySuffix', 'à verser')}
               </Text>
-              {item.hasPaymentDue && (
+              {penalty > 0 && (
                 <View style={styles.penaltyPill}>
                   <Ionicons name="warning-outline" size={11} color="#FFFFFF" />
-                  <Text style={styles.penaltyPillText}>Pénalités</Text>
+                  <Text style={styles.penaltyPillText}>
+                    {t('tontineList.penaltyApplied', 'Pénalité')}
+                  </Text>
                 </View>
               )}
             </View>
           </View>
         );
       })()}
+      {isActiveConfirmed &&
+        payState.needsPaymentAttention &&
+        !payState.rawPaymentDate && (
+          <View style={[styles.paymentDueBlock, { marginTop: 4 }]}>
+            <Text style={[styles.paymentDueCountdown, { color: '#F5A623' }]}>
+              {t(
+                'tontineList.paymentScheduleUnknown',
+                'Échéance indisponible — ouvrez la fiche tontine pour cotiser.'
+              )}
+            </Text>
+          </View>
+        )}
       {item.membershipRole === 'CREATOR' && (
         <View style={styles.roleBadge}>
           <Text style={styles.roleText}>{t('tontineList.organizer', 'Organisateur')}</Text>
