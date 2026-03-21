@@ -214,6 +214,27 @@ export const ENDPOINTS = {
       method: 'POST' as const,
       url: `${BASE}/v1/payments/callbacks/telecel`,
     },
+    /** Extensions espèces — aligner les chemins sur le backend Nest */
+    CASH_INITIATE: {
+      method: 'POST' as const,
+      url: `${BASE}/v1/payments/cash/initiate`,
+    },
+    CASH_UPLOAD_RECEIPT: {
+      method: 'POST' as const,
+      url: `${BASE}/v1/payments/cash/upload-receipt`,
+    },
+    CASH_SUBMIT_PROOF: (paymentUid: string) => ({
+      method: 'PATCH' as const,
+      url: `${BASE}/v1/payments/${paymentUid}/cash-proof`,
+    }),
+    CASH_PENDING: (tontineUid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/tontines/${tontineUid}/cash-pending`,
+    }),
+    CASH_VALIDATE: (paymentUid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/payments/${paymentUid}/cash-validate`,
+    }),
   },
 
   // ── NOTIFICATIONS ─────────────────────────────────────────

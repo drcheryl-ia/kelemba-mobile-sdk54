@@ -96,6 +96,16 @@ export type RootStackParamList = {
     method: 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH';
     initialStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
   };
+  CashProofScreen: {
+    paymentUid: string;
+    tontineUid: string;
+    tontineName: string;
+    amount: number;
+  };
+  CashValidationScreen: {
+    tontineUid: string;
+    tontineName: string;
+  };
   PaymentReceiptScreen: {
     paymentUid: string;
     tontineName: string;

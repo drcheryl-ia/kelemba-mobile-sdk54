@@ -55,6 +55,8 @@ import {
   PaymentScreen,
   PaymentStatusScreen,
   PaymentReminderScreen,
+  CashProofScreen,
+  CashValidationScreen,
 } from '@/screens/payments';
 import {
   registerFcmTapHandler,
@@ -398,6 +400,16 @@ export const AppNavigator: React.FC = () => {
           options={{ presentation: 'modal' }}
         />
         <RootStack.Screen name="PaymentStatusScreen" component={PaymentStatusScreen} />
+        <RootStack.Screen
+          name="CashProofScreen"
+          component={CashProofScreen}
+          options={{ headerShown: false, presentation: 'modal' }}
+        />
+        <RootStack.Screen
+          name="CashValidationScreen"
+          component={CashValidationScreen}
+          options={{ headerShown: false }}
+        />
         <RootStack.Screen name="InviteMembers" component={InviteMembersScreen} />
         <RootStack.Screen name="TontineRotation" component={TontineRotationScreen} />
         <RootStack.Screen name="RotationReorderScreen" component={RotationReorderScreen} />

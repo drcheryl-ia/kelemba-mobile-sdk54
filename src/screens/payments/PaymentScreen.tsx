@@ -284,8 +284,24 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
       queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
       queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
 
-      // Pour CASH, COMPLETED est immédiat → invalider tout de suite
-      if (isCash || initialStatus === 'COMPLETED') {
+      if (isCash) {
+        queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
+        queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
+        queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+        (navigation as unknown as { navigate: (n: string, p: object) => void }).navigate(
+          'CashProofScreen',
+          {
+            paymentUid: result.uid,
+            tontineUid,
+            tontineName,
+            amount: totalAmount,
+          }
+        );
+        return;
+      }
+
+      // Orange / Telecel : COMPLETED immédiat → invalider agrégats
+      if (initialStatus === 'COMPLETED') {
         queryClient.invalidateQueries({ queryKey: ['tontines'] });
         queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
         queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });

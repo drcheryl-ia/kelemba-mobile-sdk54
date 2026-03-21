@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -35,6 +35,7 @@ import { usePaymentHistory, type PaymentFilter } from '@/hooks/usePaymentHistory
 import { useTontineReport } from '@/hooks/useTontineReport';
 import { useNextPayment } from '@/hooks/useNextPayment';
 import { initializeCycles, shuffleRotation } from '@/api/tontinesApi';
+import { getCashPendingRequests } from '@/api/cashPaymentApi';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { logger } from '@/utils/logger';
 import { formatFcfa, maskPhone } from '@/utils/formatters';
@@ -206,6 +207,18 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     refetch: refetchPayments,
   } = usePaymentHistory(tontineUid, paymentFilter);
 
+  const { data: cashPendingList = [] } = useQuery({
+    queryKey: ['cash-pending', tontineUid],
+    queryFn: () => getCashPendingRequests(tontineUid),
+    enabled: isCreator && tontine?.status === 'ACTIVE',
+    staleTime: 30_000,
+  });
+
+  const cashPendingReviewCount = useMemo(
+    () => cashPendingList.filter((r) => r.status === 'PENDING_REVIEW').length,
+    [cashPendingList]
+  );
+
   const sortedMembers = useMemo(
     () => [...members].sort((a, b) => a.rotationOrder - b.rotationOrder),
     [members]
@@ -268,6 +281,8 @@ export const TontineDetailsScreen: React.FC<Props> = ({
 
   const handleCotiser = useCallback(() => {
     if (!currentCycle || !tontine || totalDue <= 0) return;
+    queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
+    queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
     (navigation as { navigate: (name: string, params: object) => void }).navigate(
       'PaymentScreen',
       {
@@ -279,7 +294,16 @@ export const TontineDetailsScreen: React.FC<Props> = ({
         cycleNumber: currentCycle.cycleNumber,
       }
     );
-  }, [currentCycle, tontine, totalDue, tontineUid, baseAmount, penaltyAmount, navigation]);
+  }, [
+    currentCycle,
+    tontine,
+    totalDue,
+    tontineUid,
+    baseAmount,
+    penaltyAmount,
+    navigation,
+    queryClient,
+  ]);
 
   const handleShuffleRotation = useCallback(() => {
     Alert.alert(
@@ -382,8 +406,20 @@ export const TontineDetailsScreen: React.FC<Props> = ({
 
   const expectedTotal = useMemo(() => {
     if (!tontine || !currentCycle) return 0;
-    const totalShares = members.reduce((s, m) => s + m.sharesCount, 0);
-    return tontine.amountPerShare * totalShares;
+
+    // Le bénéficiaire du cycle courant ne cotise pas pour son propre tour
+    // (formule TOTAL_PARTS_MINUS_ONE — défaut backend).
+    // On exclut ses parts du montant attendu.
+    const beneficiaryMembershipUid = currentCycle.beneficiaryMembershipUid;
+
+    const payingShares = members.reduce((sum, m) => {
+      if (beneficiaryMembershipUid && m.uid === beneficiaryMembershipUid) {
+        return sum;
+      }
+      return sum + m.sharesCount;
+    }, 0);
+
+    return tontine.amountPerShare * payingShares;
   }, [tontine, currentCycle, members]);
 
   const progressRatio = useMemo(() => {
@@ -411,6 +447,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
         queryClient.invalidateQueries({ queryKey: ['report', tontineUid] });
         queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
         queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
+        queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
       }
     }, [tontine?.status, tontineUid, queryClient])
   );
@@ -1186,6 +1223,30 @@ export const TontineDetailsScreen: React.FC<Props> = ({
             ))}
             </ScrollView>
           </View>
+          {isCreator && tontine?.status === 'ACTIVE' && (
+            <Pressable
+              style={styles.cashValidationBtn}
+              onPress={() =>
+                (navigation as { navigate: (n: string, p: object) => void }).navigate(
+                  'CashValidationScreen',
+                  { tontineUid, tontineName: tontine.name }
+                )
+              }
+              accessibilityRole="button"
+            >
+              <Ionicons name="cash-outline" size={20} color="#FFFFFF" />
+              <Text style={[styles.cashValidationBtnText, { flex: 1 }]}>
+                Valider paiements espèces
+              </Text>
+              {cashPendingReviewCount > 0 && (
+                <View style={styles.cashValidationBadge}>
+                  <Text style={styles.cashValidationBadgeText}>
+                    {cashPendingReviewCount > 99 ? '99+' : cashPendingReviewCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          )}
           <FlatList
             data={payments}
             keyExtractor={(item) => item.uid}
@@ -1514,6 +1575,38 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: KELEMBA_GREEN,
     fontWeight: '600',
+  },
+  cashValidationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#F5A623',
+    borderRadius: 12,
+    paddingVertical: 14,
+    minHeight: 52,
+    marginBottom: 16,
+    marginHorizontal: 20,
+    paddingHorizontal: 16,
+  },
+  cashValidationBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  cashValidationBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#D0021B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  cashValidationBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   listContent: {
     padding: 20,

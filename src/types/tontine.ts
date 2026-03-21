@@ -23,7 +23,8 @@ export interface CurrentCycle {
   totalAmount: number;
   delayedByMemberIds: string[] | null;
   status: CycleStatus;
-  beneficiaryMembershipUid: string | null;
+  /** Membership uid du bénéficiaire du tour (exclu du montant attendu côté mobile) — GET /cycles/current */
+  beneficiaryMembershipUid?: string | null;
 }
 
 export interface TontineMember {
