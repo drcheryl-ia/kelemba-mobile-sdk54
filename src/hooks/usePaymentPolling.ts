@@ -1,6 +1,7 @@
 /**
  * Hook — polling du statut d'un paiement.
  * GET /api/v1/payments/:id/status toutes les 3s, max 40 tentatives (2 min).
+ * @param skip Si true (CASH ou COMPLETED initial), pas de requêtes — statut terminal immédiat.
  */
 import { useState, useEffect, useRef } from 'react';
 import { getPaymentStatus } from '@/api/paymentApi';
@@ -20,27 +21,50 @@ export interface UsePaymentPollingResult {
   maxAttempts: number;
 }
 
-export function usePaymentPolling(paymentUid: string): UsePaymentPollingResult {
-  const [status, setStatus] = useState<PaymentStatus | 'TIMEOUT'>('PENDING');
+export function usePaymentPolling(
+  paymentUid: string,
+  skip = false
+): UsePaymentPollingResult {
+  const [status, setStatus] = useState<PaymentStatus | 'TIMEOUT'>(() =>
+    skip ? 'COMPLETED' : 'PENDING'
+  );
   const [data, setData] = useState<PaymentStatusDto | null>(null);
   const [attempts, setAttempts] = useState(0);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
-  const statusRef = useRef<PaymentStatus | 'TIMEOUT'>('PENDING');
+  const statusRef = useRef<PaymentStatus | 'TIMEOUT'>(skip ? 'COMPLETED' : 'PENDING');
   const attemptsRef = useRef(0);
 
   statusRef.current = status;
   attemptsRef.current = attempts;
 
   useEffect(() => {
+    if (skip) {
+      setStatus('COMPLETED');
+      setData(null);
+      setAttempts(0);
+      statusRef.current = 'COMPLETED';
+      attemptsRef.current = 0;
+      return;
+    }
+
+    setStatus('PENDING');
+    setData(null);
+    setAttempts(0);
+    statusRef.current = 'PENDING';
+    attemptsRef.current = 0;
+
     mountedRef.current = true;
 
     const poll = async () => {
       if (!mountedRef.current) return;
       const currentAttempts = attemptsRef.current;
       if (currentAttempts >= MAX_POLL_ATTEMPTS) return;
-      if (TERMINAL_STATUSES.includes(statusRef.current as PaymentStatus) || statusRef.current === 'TIMEOUT') {
+      if (
+        TERMINAL_STATUSES.includes(statusRef.current as PaymentStatus) ||
+        statusRef.current === 'TIMEOUT'
+      ) {
         return;
       }
 
@@ -92,13 +116,13 @@ export function usePaymentPolling(paymentUid: string): UsePaymentPollingResult {
         intervalRef.current = null;
       }
     };
-  }, [paymentUid]);
+  }, [paymentUid, skip]);
 
   return {
     status,
     data,
     isTimeout: status === 'TIMEOUT',
     attempts,
-    maxAttempts: MAX_POLL_ATTEMPTS,
+    maxAttempts: skip ? 1 : MAX_POLL_ATTEMPTS,
   };
 }

@@ -93,7 +93,8 @@ export type RootStackParamList = {
     tontineUid: string;
     tontineName: string;
     amount: number;
-    method: 'ORANGE_MONEY' | 'TELECEL_MONEY';
+    method: 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH';
+    initialStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
   };
   PaymentReceiptScreen: {
     paymentUid: string;

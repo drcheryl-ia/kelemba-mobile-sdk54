@@ -41,7 +41,7 @@ export interface TontineMember {
   signedAt: string | null;
 }
 
-export type PaymentMethod = 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'SYSTEM';
+export type PaymentMethod = 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH' | 'SYSTEM';
 
 export interface PaymentHistoryItem {
   uid: string;

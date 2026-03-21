@@ -69,7 +69,7 @@ function buildReceiptHtml(r: PaymentReceiptData): string {
         </div>
         <div class="row">
           <span class="label">Moyen de paiement</span>
-          <span class="value">${r.method === 'ORANGE_MONEY' ? 'Orange Money' : 'Telecel Money'}</span>
+          <span class="value">${r.method === 'ORANGE_MONEY' ? 'Orange Money' : r.method === 'TELECEL_MONEY' ? 'Telecel Money' : r.method === 'CASH' ? 'Espèces' : r.method}</span>
         </div>
         <div class="row">
           <span class="label">Montant de base</span>

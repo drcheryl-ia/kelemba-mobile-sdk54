@@ -1,11 +1,21 @@
 /**
- * Écran de paiement complet — 4 étapes séquentielles.
- * Étape 1 : Détail cotisation (montant + pénalités)
- * Étape 2 : Sélection moyen de paiement
- * Étape 3 : Récapitulatif avant confirmation
- * Étape 4 : Saisie PIN → appel API initiate
+ * PaymentScreen — flux de paiement adaptatif selon le mode.
+ *
+ * CASH        : Étape 1 (détail) → Étape 2 (récap) → Étape 3 (confirmation)
+ * Orange/Tel  : Étape 1 (détail) → Étape 2 (méthode+n°) → Étape 3 (récap) → Étape 4 (PIN)
+ *
+ * Garanties fintech :
+ *   — idempotency-key UUID v4 généré une seule fois au montage (useRef)
+ *   — un seul appel POST /payments/initiate (disabled après première soumission)
+ *   — invalidation React Query complète après COMPLETED
+ *   — gestion exhaustive de tous les codes d'erreur backend
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
 import {
   View,
   Text,
@@ -24,35 +34,153 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useSelector } from 'react-redux';
 import type { RootState } from '@/store/store';
-import { selectUserUid, selectUserPhone } from '@/store/authSlice';
+import { selectUserPhone } from '@/store/authSlice';
 import { initiatePayment } from '@/api/paymentApi';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { ApiErrorCode } from '@/api/errors/errorCodes';
 import { logger } from '@/utils/logger';
-import { formatFcfa } from '@/utils/formatters';
+import { formatFcfa, maskPhone } from '@/utils/formatters';
 import { PinPad } from '@/components/auth';
 import { CONSTANTS } from '@/config/constants';
 import type { PaymentMethod } from '@/types/payment';
-import { maskPhone } from '@/utils/formatters';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PaymentScreen'>;
 
-const PAYMENT_METHODS: {
+type FlowMode = 'CASH' | 'MOBILE_MONEY';
+
+interface PaymentMethodConfig {
   id: PaymentMethod;
   label: string;
-  icon: string;
+  sublabel: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   color: string;
-}[] = [
-  { id: 'ORANGE_MONEY', label: 'Orange Money', icon: 'phone-portrait-outline', color: '#F5A623' },
-  { id: 'TELECEL_MONEY', label: 'Telecel Money', icon: 'phone-portrait-outline', color: '#0055A5' },
-];
+  badge?: string;
+  flow: FlowMode;
+}
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
 
 const RCA_PHONE_REGEX = /^\+236\d{8}$/;
+const PIN_LENGTH = CONSTANTS.PIN_LENGTH ?? 6;
+
+const METHODS: PaymentMethodConfig[] = [
+  {
+    id: 'CASH',
+    label: 'Espèces',
+    sublabel: "Remise en main propre à l'organisateur",
+    icon: 'cash-outline',
+    color: '#1A6B3C',
+    badge: 'Disponible',
+    flow: 'CASH',
+  },
+  {
+    id: 'ORANGE_MONEY',
+    label: 'Orange Money',
+    sublabel: 'Paiement mobile (réseau Orange)',
+    icon: 'phone-portrait-outline',
+    color: '#F5A623',
+    flow: 'MOBILE_MONEY',
+  },
+  {
+    id: 'TELECEL_MONEY',
+    label: 'Telecel Money',
+    sublabel: 'Paiement mobile (réseau Telecel)',
+    icon: 'phone-portrait-outline',
+    color: '#0055A5',
+    flow: 'MOBILE_MONEY',
+  },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Générer un UUID v4 compatible React Native (sans dépendance externe) */
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function resolveErrorMessage(
+  err: unknown,
+  t: (k: string, fb: string) => string
+): { title: string; message: string; isFinal: boolean } {
+  const apiErr = parseApiError(err);
+  switch (apiErr.code) {
+    case ApiErrorCode.PAYMENT_DUPLICATE:
+      return {
+        title: t('payment.alreadyPaidTitle', 'Cotisation déjà réglée'),
+        message: t(
+          'payment.alreadyPaidMessage',
+          'Votre cotisation pour ce cycle a déjà été enregistrée.'
+        ),
+        isFinal: true,
+      };
+    case ApiErrorCode.PAYMENT_FAILED:
+      return {
+        title: t('payment.failedTitle', 'Paiement refusé'),
+        message: t(
+          'payment.failedMessage',
+          "L'opérateur a refusé la transaction. Vérifiez votre solde."
+        ),
+        isFinal: false,
+      };
+    case ApiErrorCode.PROVIDER_UNAVAILABLE:
+      return {
+        title: t('payment.providerUnavailable', 'Service indisponible'),
+        message: t(
+          'payment.providerUnavailableMessage',
+          'Le service de paiement est temporairement indisponible. Réessayez.'
+        ),
+        isFinal: false,
+      };
+    case ApiErrorCode.INSUFFICIENT_FUNDS:
+      return {
+        title: t('payment.insufficientFunds', 'Solde insuffisant'),
+        message: t(
+          'payment.insufficientFundsMessage',
+          'Votre solde Mobile Money est insuffisant pour ce paiement.'
+        ),
+        isFinal: false,
+      };
+    case ApiErrorCode.KYC_NOT_VERIFIED:
+      return {
+        title: t('payment.kycRequired', 'KYC requis'),
+        message: t(
+          'payment.kycMessage',
+          "Veuillez compléter votre vérification d'identité avant de payer."
+        ),
+        isFinal: true,
+      };
+    case ApiErrorCode.NETWORK_ERROR:
+    case ApiErrorCode.TIMEOUT:
+      return {
+        title: t('common.networkError', 'Erreur réseau'),
+        message: t(
+          'register.errorNetwork',
+          'Vérifiez votre connexion et réessayez.'
+        ),
+        isFinal: false,
+      };
+    default:
+      return {
+        title: t('common.error', 'Erreur'),
+        message:
+          apiErr.message ||
+          t('register.errorNetwork', 'Vérifiez votre connexion.'),
+        isFinal: false,
+      };
+  }
+}
+
+// ─── Composant ────────────────────────────────────────────────────────────────
 
 export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const userUid = useSelector((state: RootState) => selectUserUid(state));
   const userPhone = useSelector((state: RootState) => selectUserPhone(state));
 
   const {
@@ -65,381 +193,605 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
     cycleNumber,
   } = route.params;
 
-  const totalAmount = baseAmount + penaltyAmount;
+  const totalAmount = baseAmount + (penaltyAmount ?? 0);
+
+  // idempotency-key générée une seule fois pour toute la durée de l'écran
+  const idempotencyKey = useRef<string>(generateUUID());
+  // Verrou pour éviter un double-submit
+  const hasSubmitted = useRef(false);
+
+  // ── État principal ─────────────────────────────────────────────────────────
   const [step, setStep] = useState(1);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   const [useProfilePhone, setUseProfilePhone] = useState(true);
   const [alternatePhone, setAlternatePhone] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  const [pinValue, setPinValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinValue, setPinValue] = useState('');
 
-  useEffect(() => {
-    if (!userPhone && useProfilePhone) {
-      setUseProfilePhone(false);
-    }
-  }, [userPhone, useProfilePhone]);
+  const selectedConfig = useMemo(
+    () => METHODS.find((m) => m.id === selectedMethod) ?? null,
+    [selectedMethod]
+  );
 
-  const paymentPhone = useProfilePhone ? (userPhone ?? '') : alternatePhone;
-  const canProceedStep2 =
-    selectedMethod &&
-    (useProfilePhone ? RCA_PHONE_REGEX.test(userPhone ?? '') : RCA_PHONE_REGEX.test(alternatePhone));
+  const isCash = selectedMethod === 'CASH';
+  const isMobileMoney =
+    selectedMethod === 'ORANGE_MONEY' || selectedMethod === 'TELECEL_MONEY';
 
-  const handleNext = useCallback(() => {
-    if (step === 2) {
-      if (!useProfilePhone && !RCA_PHONE_REGEX.test(alternatePhone)) {
-        setPhoneError(t('payment.phoneInvalid', 'Numéro RCA invalide (+236 suivi de 8 chiffres)'));
-        return;
-      }
-      setPhoneError(null);
-    }
-    if (step < 4) setStep(step + 1);
-  }, [step, useProfilePhone, alternatePhone, t]);
+  // Nombre d'étapes selon le mode
+  const totalSteps = isCash ? 3 : 4;
+
+  const paymentPhone = useMemo(() => {
+    if (isCash) return null;
+    return useProfilePhone ? (userPhone ?? '') : alternatePhone;
+  }, [isCash, useProfilePhone, userPhone, alternatePhone]);
+
+  const canProceedStep2 = useMemo(() => {
+    if (!selectedMethod) return false;
+    if (isCash) return true;
+    return useProfilePhone
+      ? RCA_PHONE_REGEX.test(userPhone ?? '')
+      : RCA_PHONE_REGEX.test(alternatePhone);
+  }, [selectedMethod, isCash, useProfilePhone, userPhone, alternatePhone]);
+
+  // ── Navigation entre étapes ────────────────────────────────────────────────
 
   const handleBack = useCallback(() => {
     if (step > 1) {
-      setStep(step - 1);
+      setStep((s) => s - 1);
       setPinValue('');
-      setPinError(null);
       setPhoneError(null);
     } else {
       navigation.goBack();
     }
   }, [step, navigation]);
 
-  const handleMethodSelect = useCallback((method: PaymentMethod) => {
-    setSelectedMethod(method);
-  }, []);
+  const handleNext = useCallback(() => {
+    if (step === 2 && !isCash) {
+      const phone = useProfilePhone ? (userPhone ?? '') : alternatePhone;
+      if (!RCA_PHONE_REGEX.test(phone)) {
+        setPhoneError(
+          t('payment.phoneInvalid', 'Format invalide : +236 suivi de 8 chiffres')
+        );
+        return;
+      }
+      setPhoneError(null);
+    }
+    setStep((s) => Math.min(s + 1, totalSteps));
+  }, [step, isCash, useProfilePhone, userPhone, alternatePhone, totalSteps, t]);
 
-  const verifyPinAndPay = useCallback(
-    async (_enteredPin: string) => {
-      if (!selectedMethod || totalAmount < 500) return;
+  // ── Soumission du paiement ─────────────────────────────────────────────────
 
+  const submitPayment = useCallback(async () => {
+    if (hasSubmitted.current || isSubmitting) return;
+    if (!selectedMethod) return;
+
+    hasSubmitted.current = true;
     setIsSubmitting(true);
-    setPinError(null);
 
-    const idempotencyKey = crypto.randomUUID();
     try {
-      const { uid } = await initiatePayment({
+      const result = await initiatePayment({
         cycleUid,
         amount: totalAmount,
         method: selectedMethod,
-        idempotencyKey,
+        idempotencyKey: idempotencyKey.current,
       });
+
+      const initialStatus = result.status;
+
+      // Invalider les queries quelle que soit la méthode
       queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
       queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
-      if (userUid) {
-        queryClient.invalidateQueries({ queryKey: ['nextPayment', userUid] });
-      }
-      queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });
+      queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
 
-      (navigation as { navigate: (name: string, params: object) => void }).navigate(
+      // Pour CASH, COMPLETED est immédiat → invalider tout de suite
+      if (isCash || initialStatus === 'COMPLETED') {
+        queryClient.invalidateQueries({ queryKey: ['tontines'] });
+        queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
+        queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });
+      }
+
+      (navigation as unknown as { navigate: (name: string, params: object) => void }).navigate(
         'PaymentStatusScreen',
         {
-          paymentUid: uid,
+          paymentUid: result.uid,
           tontineUid,
           tontineName,
           amount: totalAmount,
           method: selectedMethod,
+          initialStatus,
         }
       );
     } catch (err: unknown) {
+      hasSubmitted.current = false;
       const apiErr = parseApiError(err);
-      if (apiErr.httpStatus === 403 && apiErr.code === ApiErrorCode.KYC_NOT_VERIFIED) {
+      const { title, message, isFinal } = resolveErrorMessage(err, t);
+
+      logger.error('[PaymentScreen] initiatePayment failed', {
+        method: selectedMethod,
+        code: apiErr.code,
+      });
+
+      if (apiErr.httpStatus === 409 && apiErr.code !== ApiErrorCode.PAYMENT_DUPLICATE) {
         Alert.alert(
-          t('payment.kycRequired', 'KYC requis'),
-          t('payment.kycMessage', 'Veuillez compléter votre vérification d\'identité.'),
-          [{ text: t('common.ok') }]
+          t('payment.inProgress', 'Paiement en cours'),
+          t(
+            'payment.inProgressMessage',
+            'Un paiement est déjà en cours pour ce cycle.'
+          ),
+          [{ text: t('common.ok', 'OK') }]
         );
-      } else if (apiErr.httpStatus === 409) {
-        const isDuplicate = apiErr.code === ApiErrorCode.PAYMENT_DUPLICATE;
-        Alert.alert(
-          isDuplicate
-            ? t('payment.alreadyPaidTitle', 'Cotisation déjà réglée')
-            : t('payment.inProgress', 'Paiement en cours'),
-          isDuplicate
-            ? t(
-                'payment.alreadyPaidMessage',
-                "Votre cotisation pour ce cycle a déjà été enregistrée. L'historique et le score ne seront pas modifiés."
-              )
-            : t('payment.inProgressMessage', 'Un paiement est déjà en cours pour ce cycle.'),
-          [
-            {
-              text: t('common.ok'),
-              onPress: isDuplicate
+        return;
+      }
+
+      Alert.alert(title, message, [
+        {
+          text: t('common.ok', 'OK'),
+          onPress:
+            apiErr.code === ApiErrorCode.PAYMENT_DUPLICATE
+              ? () => {
+                  queryClient.invalidateQueries({ queryKey: ['tontines'] });
+                  queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+                  navigation.goBack();
+                }
+              : isFinal
                 ? () => {
-                    queryClient.invalidateQueries({ queryKey: ['tontines'] });
-                    queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
                     navigation.goBack();
                   }
                 : undefined,
-            },
-          ]
-        );
-      } else if (apiErr.httpStatus === 400) {
-        Alert.alert(t('common.error'), apiErr.message, [{ text: t('common.ok') }]);
-      } else {
-        Alert.alert(
-          t('common.error'),
-          t('register.errorNetwork', 'Vérifiez votre connexion et réessayez.'),
-          [{ text: t('common.ok') }]
-        );
-      }
-      logger.error('PaymentScreen initiatePayment failed', { code: apiErr.code });
+        },
+      ]);
     } finally {
       setIsSubmitting(false);
     }
-  },
-    [
-      selectedMethod,
-      totalAmount,
-      cycleUid,
-      tontineUid,
-      userUid,
-      queryClient,
-      navigation,
-      t,
-    ]
-  );
+  }, [
+    isSubmitting,
+    selectedMethod,
+    cycleUid,
+    totalAmount,
+    tontineUid,
+    tontineName,
+    isCash,
+    queryClient,
+    navigation,
+    t,
+  ]);
 
   const handlePinComplete = useCallback(
-    (value: string) => {
-      void verifyPinAndPay(value);
+    (pin: string) => {
+      if (pin.length === PIN_LENGTH) {
+        void submitPayment();
+      }
     },
-    [verifyPinAndPay]
+    [submitPayment]
   );
 
-  const pinLength = CONSTANTS.PIN_LENGTH ?? 6;
+  // ── Rendu ─────────────────────────────────────────────────────────────────
+
+  const stepLabel = isCash ? `Étape ${step} sur 3` : `Étape ${step} sur 4`;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      {/* Header */}
       <View style={styles.header}>
         <Pressable
           onPress={handleBack}
-          style={styles.backButton}
+          style={styles.backBtn}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back')}
+          accessibilityLabel={t('common.back', 'Retour')}
+          hitSlop={12}
         >
           <Ionicons name="arrow-back" size={24} color="#1A1A2E" />
         </Pressable>
-        <Text style={styles.headerTitle}>
-          {t('payment.title', 'Paiement')} — {t('payment.step', 'Étape')} {step}/4
-        </Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {tontineName}
+          </Text>
+          <Text style={styles.headerStep}>{stepLabel}</Text>
+        </View>
+        <View style={styles.headerRight} />
+      </View>
+
+      {/* Barre de progression */}
+      <View style={styles.progressBar}>
+        <View
+          style={[styles.progressFill, { width: `${(step / totalSteps) * 100}%` }]}
+        />
       </View>
 
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Étape 1 — Détail cotisation */}
+        {/* ══════════════════════════════════════════════════════════════
+            ÉTAPE 1 — Détail de la cotisation (commun à tous les modes)
+        ══════════════════════════════════════════════════════════════ */}
         {step === 1 && (
-          <View style={styles.stepCard}>
-            <Text style={styles.stepTitle}>
-              {t('payment.detailTitle', 'Cotisation')} Cycle {cycleNumber} — {tontineName}
+          <View style={styles.stepContainer}>
+            <Text style={styles.stepTitle}>Détail de la cotisation</Text>
+            <Text style={styles.stepSubtitle}>
+              Cycle {cycleNumber} — {tontineName}
             </Text>
-            <View style={styles.amountBlock}>
+
+            <View style={styles.amountCard}>
               <View style={styles.amountRow}>
-                <Text style={styles.amountLabel}>{t('payment.baseAmount', 'Montant de base')}</Text>
+                <Text style={styles.amountLabel}>Cotisation de base</Text>
                 <Text style={styles.amountValue}>{formatFcfa(baseAmount)}</Text>
               </View>
-              {penaltyAmount > 0 && (
+              {(penaltyAmount ?? 0) > 0 && (
                 <View style={styles.amountRow}>
-                  <Text style={[styles.amountLabel, styles.penaltyLabel]}>
-                    {t('payment.penalty', 'Retard')}
-                    {penaltyDays != null ? ` (${penaltyDays} j)` : ''} → +{formatFcfa(penaltyAmount)}
+                  <View>
+                    <Text style={[styles.amountLabel, styles.penaltyText]}>
+                      Pénalité de retard
+                    </Text>
+                    {penaltyDays != null && penaltyDays > 0 && (
+                      <Text style={styles.penaltyDays}>
+                        {penaltyDays} jour{penaltyDays > 1 ? 's' : ''} de retard
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={[styles.amountValue, styles.penaltyText]}>
+                    + {formatFcfa(penaltyAmount ?? 0)}
                   </Text>
                 </View>
               )}
-              <View style={[styles.amountRow, styles.totalRow]}>
-                <Text style={styles.totalLabel}>{t('payment.total', 'Total à payer')}</Text>
+              <View style={styles.divider} />
+              <View style={styles.amountRow}>
+                <Text style={styles.totalLabel}>Total à payer</Text>
                 <Text style={styles.totalValue}>{formatFcfa(totalAmount)}</Text>
               </View>
             </View>
+
+            <View style={styles.infoBlock}>
+              <Ionicons name="shield-checkmark-outline" size={16} color="#0055A5" />
+              <Text style={styles.infoText}>
+                Paiement sécurisé. Un identifiant unique garantit qu'aucun doublon ne
+                sera débité même en cas d'interruption réseau.
+              </Text>
+            </View>
+
             <Pressable style={styles.primaryBtn} onPress={handleNext}>
-              <Text style={styles.primaryBtnText}>{t('common.continue', 'Continuer')}</Text>
+              <Text style={styles.primaryBtnText}>Choisir le mode de paiement</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </Pressable>
           </View>
         )}
 
-        {/* Étape 2 — Moyen de paiement + numéro */}
+        {/* ══════════════════════════════════════════════════════════════
+            ÉTAPE 2 — Sélection méthode + numéro (Mobile Money)
+                    ou déjà récapitulatif (CASH)
+        ══════════════════════════════════════════════════════════════ */}
         {step === 2 && (
-          <View style={styles.stepCard}>
-            <Text style={styles.stepTitle}>
-              {t('payment.methodTitle', 'Choisir le moyen de paiement')}
+          <View style={styles.stepContainer}>
+            <Text style={styles.stepTitle}>Mode de paiement</Text>
+            <Text style={styles.stepSubtitle}>
+              Choisissez comment régler votre cotisation
             </Text>
-            {PAYMENT_METHODS.map((m) => (
-              <View key={m.id} style={styles.methodCardWrapper}>
-                <Pressable
-                  style={[
-                    styles.methodCard,
-                    selectedMethod === m.id && styles.methodCardSelected,
-                  ]}
-                  onPress={() => handleMethodSelect(m.id)}
-                >
-                  <Ionicons
-                    name={m.icon as keyof typeof Ionicons.glyphMap}
-                    size={28}
-                    color={selectedMethod === m.id ? m.color : '#6B7280'}
-                  />
-                  <Text
+
+            {METHODS.map((method) => {
+              const isSelected = selectedMethod === method.id;
+              return (
+                <View key={method.id}>
+                  <Pressable
                     style={[
-                      styles.methodLabel,
-                      selectedMethod === m.id && styles.methodLabelSelected,
+                      styles.methodCard,
+                      isSelected && styles.methodCardSelected,
+                      isSelected && { borderColor: method.color },
                     ]}
+                    onPress={() => {
+                      setSelectedMethod(method.id);
+                      setPhoneError(null);
+                    }}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: isSelected }}
                   >
-                    {m.label}
-                  </Text>
-                  {selectedMethod === m.id && (
-                    <Ionicons name="checkmark-circle" size={24} color="#1A6B3C" />
-                  )}
-                </Pressable>
-                {selectedMethod === m.id && (
-                  <View style={styles.phoneOptions}>
-                    <Text style={styles.phoneProfileLabel}>
-                      {t('payment.phoneProfile', 'Numéro lié au profil')} :{' '}
-                      {userPhone ? maskPhone(userPhone) : '—'}
-                    </Text>
-                    <Pressable
-                      style={styles.radioRow}
-                      onPress={() => {
-                        setUseProfilePhone(true);
-                        setAlternatePhone('');
-                        setPhoneError(null);
-                      }}
+                    <View
+                      style={[
+                        styles.methodIcon,
+                        { backgroundColor: `${method.color}18` },
+                      ]}
                     >
-                      <View
-                        style={[
-                          styles.radio,
-                          useProfilePhone && styles.radioSelected,
-                        ]}
-                      />
-                      <Text style={styles.radioLabel}>
-                        {t('payment.useProfilePhone', 'Utiliser ce numéro')}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.radioRow}
-                      onPress={() => setUseProfilePhone(false)}
+                      <Ionicons name={method.icon} size={26} color={method.color} />
+                    </View>
+
+                    <View style={styles.methodInfo}>
+                      <View style={styles.methodLabelRow}>
+                        <Text style={styles.methodLabel}>{method.label}</Text>
+                        {method.badge && (
+                          <View
+                            style={[
+                              styles.methodBadge,
+                              { backgroundColor: `${method.color}20` },
+                            ]}
+                          >
+                            <Text style={[styles.methodBadgeText, { color: method.color }]}>
+                              {method.badge}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.methodSublabel}>{method.sublabel}</Text>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        isSelected && {
+                          borderColor: method.color,
+                          backgroundColor: method.color,
+                        },
+                      ]}
                     >
-                      <View
-                        style={[
-                          styles.radio,
-                          !useProfilePhone && styles.radioSelected,
-                        ]}
-                      />
-                      <Text style={styles.radioLabel}>
-                        {t('payment.useOtherPhone', 'Utiliser un autre numéro')}
+                      {isSelected && <View style={styles.radioInner} />}
+                    </View>
+                  </Pressable>
+
+                  {/* Saisie numéro — uniquement Mobile Money sélectionné */}
+                  {isSelected && method.flow === 'MOBILE_MONEY' && (
+                    <View style={styles.phoneSection}>
+                      <Text style={styles.phoneSectionTitle}>
+                        Numéro {method.label}
                       </Text>
-                    </Pressable>
-                    {!useProfilePhone && (
-                      <TextInput
-                        style={[styles.phoneInput, phoneError && styles.phoneInputError]}
-                        placeholder="+23675100010"
-                        placeholderTextColor="#9CA3AF"
-                        value={alternatePhone}
-                        onChangeText={(v) => {
-                          setAlternatePhone(v);
+
+                      <Pressable
+                        style={styles.phoneOptionRow}
+                        onPress={() => {
+                          setUseProfilePhone(true);
                           setPhoneError(null);
                         }}
-                        keyboardType="phone-pad"
-                        autoCapitalize="none"
+                      >
+                        <View
+                          style={[
+                            styles.radioOuter,
+                            useProfilePhone && {
+                              borderColor: method.color,
+                              backgroundColor: method.color,
+                            },
+                          ]}
+                        >
+                          {useProfilePhone && <View style={styles.radioInner} />}
+                        </View>
+                        <View>
+                          <Text style={styles.phoneOptionLabel}>
+                            Mon numéro enregistré
+                          </Text>
+                          <Text style={styles.phoneOptionValue}>
+                            {userPhone ? maskPhone(userPhone) : 'Non renseigné'}
+                          </Text>
+                        </View>
+                      </Pressable>
+
+                      <Pressable
+                        style={styles.phoneOptionRow}
+                        onPress={() => setUseProfilePhone(false)}
+                      >
+                        <View
+                          style={[
+                            styles.radioOuter,
+                            !useProfilePhone && {
+                              borderColor: method.color,
+                              backgroundColor: method.color,
+                            },
+                          ]}
+                        >
+                          {!useProfilePhone && <View style={styles.radioInner} />}
+                        </View>
+                        <Text style={styles.phoneOptionLabel}>
+                          Utiliser un autre numéro
+                        </Text>
+                      </Pressable>
+
+                      {!useProfilePhone && (
+                        <TextInput
+                          style={[
+                            styles.phoneInput,
+                            phoneError && styles.phoneInputError,
+                          ]}
+                          placeholder="+23675 XX XX XX"
+                          placeholderTextColor="#9CA3AF"
+                          value={alternatePhone}
+                          onChangeText={(v) => {
+                            setAlternatePhone(v);
+                            setPhoneError(null);
+                          }}
+                          keyboardType="phone-pad"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          maxLength={13}
+                        />
+                      )}
+                      {phoneError && (
+                        <Text style={styles.phoneError}>{phoneError}</Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Info CASH sélectionné */}
+                  {isSelected && method.flow === 'CASH' && (
+                    <View style={styles.cashInfo}>
+                      <Ionicons
+                        name="information-circle-outline"
+                        size={16}
+                        color="#1A6B3C"
                       />
-                    )}
-                  </View>
-                )}
-              </View>
-            ))}
-            {phoneError && (
-              <View style={styles.errorBanner}>
-                <Ionicons name="alert-circle" size={20} color="#D0021B" />
-                <Text style={styles.errorText}>{phoneError}</Text>
-              </View>
-            )}
+                      <Text style={styles.cashInfoText}>
+                        Le paiement est enregistré immédiatement après confirmation.
+                        Assurez-vous d'avoir les espèces disponibles avant de continuer.
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+
             <Pressable
               style={[styles.primaryBtn, !canProceedStep2 && styles.primaryBtnDisabled]}
               onPress={handleNext}
               disabled={!canProceedStep2}
             >
-              <Text style={styles.primaryBtnText}>{t('common.continue', 'Continuer')}</Text>
+              <Text style={styles.primaryBtnText}>Continuer</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </Pressable>
           </View>
         )}
 
-        {/* Étape 3 — Récapitulatif */}
-        {step === 3 && selectedMethod && (
-          <View style={styles.stepCard}>
-            <Text style={styles.stepTitle}>
-              {t('payment.summaryTitle', 'Récapitulatif')}
+        {/* ══════════════════════════════════════════════════════════════
+            ÉTAPE 3 — Récapitulatif avant paiement
+        ══════════════════════════════════════════════════════════════ */}
+        {step === 3 && selectedConfig && (
+          <View style={styles.stepContainer}>
+            <Text style={styles.stepTitle}>Récapitulatif</Text>
+            <Text style={styles.stepSubtitle}>
+              Vérifiez les informations avant de confirmer
             </Text>
-            <View style={styles.summaryBlock}>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{t('payment.tontine', 'Tontine')}</Text>
-                <Text style={styles.summaryValue}>{tontineName}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{t('payment.cycle', 'Cycle')}</Text>
-                <Text style={styles.summaryValue}>{cycleNumber}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{t('payment.method', 'Moyen')}</Text>
-                <Text style={styles.summaryValue}>
-                  {PAYMENT_METHODS.find((x) => x.id === selectedMethod)?.label ?? selectedMethod}
-                </Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{t('payment.phoneNumber', 'Numéro de paiement')}</Text>
-                <Text style={styles.summaryValue}>{paymentPhone ? maskPhone(paymentPhone) : '—'}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{t('payment.baseAmount', 'Montant de base')}</Text>
-                <Text style={styles.summaryValue}>{formatFcfa(baseAmount)}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{t('payment.penalty', 'Pénalités')}</Text>
-                <Text style={styles.summaryValue}>
-                  {penaltyAmount > 0 ? formatFcfa(penaltyAmount) : t('payment.none', 'Aucune')}
-                </Text>
-              </View>
-              <View style={[styles.summaryRow, styles.summaryTotal]}>
-                <Text style={styles.totalLabel}>{t('payment.total', 'Total')}</Text>
-                <Text style={styles.totalValue}>{formatFcfa(totalAmount)}</Text>
-              </View>
+
+            <View style={styles.summaryCard}>
+              <SummaryRow label="Tontine" value={tontineName} />
+              <SummaryRow label="Cycle" value={`Cycle ${cycleNumber}`} />
+              <SummaryRow
+                label="Mode de paiement"
+                value={selectedConfig.label}
+                valueColor={selectedConfig.color}
+              />
+              {!isCash && paymentPhone && (
+                <SummaryRow label="Numéro" value={maskPhone(paymentPhone)} />
+              )}
+              <SummaryRow label="Cotisation de base" value={formatFcfa(baseAmount)} />
+              {(penaltyAmount ?? 0) > 0 && (
+                <SummaryRow
+                  label="Pénalité"
+                  value={`+ ${formatFcfa(penaltyAmount ?? 0)}`}
+                  valueColor="#D0021B"
+                />
+              )}
+              <View style={styles.summaryDivider} />
+              <SummaryRow label="Total" value={formatFcfa(totalAmount)} bold />
             </View>
-            <Pressable style={styles.primaryBtn} onPress={handleNext}>
-              <Text style={styles.primaryBtnText}>
-                {t('payment.confirmAndPay', 'Confirmer et payer')}
-              </Text>
-            </Pressable>
-          </View>
-        )}
 
-        {/* Étape 4 — Saisie PIN */}
-        {step === 4 && selectedMethod && (
-          <View style={styles.stepCard}>
-            <Text style={styles.stepTitle}>
-              {t('payment.pinTitle', 'Saisissez votre PIN')}
-            </Text>
-            <Text style={styles.pinSubtitle}>
-              {t('payment.pinSubtitle', 'Entrez votre PIN de sécurité pour valider le paiement')}
-            </Text>
-            {pinError && (
-              <View style={styles.errorBanner}>
-                <Ionicons name="alert-circle" size={20} color="#D0021B" />
-                <Text style={styles.errorText}>{pinError}</Text>
+            {/* Bloc informatif selon le mode */}
+            {isCash && (
+              <View style={styles.modeInfoCard}>
+                <Ionicons name="cash-outline" size={22} color="#1A6B3C" />
+                <View style={styles.modeInfoContent}>
+                  <Text style={styles.modeInfoTitle}>Paiement en espèces</Text>
+                  <Text style={styles.modeInfoBody}>
+                    En confirmant, vous attestez remettre {formatFcfa(totalAmount)} en
+                    espèces à l'organisateur. Le paiement sera enregistré immédiatement.
+                  </Text>
+                </View>
               </View>
             )}
+
+            {isMobileMoney && (
+              <View style={styles.modeInfoCard}>
+                <Ionicons
+                  name="phone-portrait-outline"
+                  size={22}
+                  color={selectedConfig.color}
+                />
+                <View style={styles.modeInfoContent}>
+                  <Text style={styles.modeInfoTitle}>
+                    Paiement {selectedConfig.label}
+                  </Text>
+                  <Text style={styles.modeInfoBody}>
+                    Une demande de confirmation sera envoyée sur votre téléphone. Vous
+                    serez redirigé vers un écran de suivi en temps réel.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* CTA */}
+            {isCash ? (
+              <Pressable
+                style={[
+                  styles.primaryBtn,
+                  styles.cashConfirmBtn,
+                  isSubmitting && styles.primaryBtnDisabled,
+                ]}
+                onPress={() => {
+                  void submitPayment();
+                }}
+                disabled={isSubmitting}
+                accessibilityRole="button"
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.primaryBtnText}>
+                      Confirmer — {formatFcfa(totalAmount)} en espèces
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            ) : (
+              <Pressable style={styles.primaryBtn} onPress={handleNext}>
+                <Text style={styles.primaryBtnText}>
+                  Saisir le code de confirmation
+                </Text>
+                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            ÉTAPE 4 — PIN (Mobile Money uniquement)
+        ══════════════════════════════════════════════════════════════ */}
+        {step === 4 && selectedConfig && isMobileMoney && (
+          <View style={styles.stepContainer}>
+            <View style={styles.pinHeader}>
+              <View
+                style={[
+                  styles.pinIconCircle,
+                  { backgroundColor: `${selectedConfig.color}18` },
+                ]}
+              >
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={32}
+                  color={selectedConfig.color}
+                />
+              </View>
+              <Text style={styles.stepTitle}>Code de sécurité</Text>
+              <Text style={styles.stepSubtitle}>
+                Saisissez votre code PIN Kelemba pour autoriser le paiement de{' '}
+                <Text style={{ fontWeight: '700', color: '#1A1A2E' }}>
+                  {formatFcfa(totalAmount)}
+                </Text>{' '}
+                via {selectedConfig.label}
+              </Text>
+            </View>
+
+            <View style={styles.pinMethodBadge}>
+              <Ionicons
+                name={selectedConfig.icon}
+                size={16}
+                color={selectedConfig.color}
+              />
+              <Text style={[styles.pinMethodText, { color: selectedConfig.color }]}>
+                {selectedConfig.label}
+                {paymentPhone ? ` — ${maskPhone(paymentPhone)}` : ''}
+              </Text>
+            </View>
+
             <PinPad
               value={pinValue}
               onChange={setPinValue}
               onComplete={handlePinComplete}
-              digitLength={pinLength}
+              digitLength={PIN_LENGTH}
             />
+
             {isSubmitting && (
-              <View style={styles.loaderOverlay}>
+              <View style={styles.submittingOverlay}>
                 <ActivityIndicator size="large" color="#1A6B3C" />
-                <Text style={styles.loaderText}>{t('payment.processing', 'Traitement...')}</Text>
+                <Text style={styles.submittingText}>
+                  Envoi de la demande de paiement…
+                </Text>
               </View>
             )}
           </View>
@@ -449,10 +801,41 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
   );
 };
 
+// ─── Sous-composant SummaryRow ────────────────────────────────────────────────
+
+function SummaryRow({
+  label,
+  value,
+  valueColor,
+  bold = false,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+  bold?: boolean;
+}) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text
+        style={[
+          styles.summaryValue,
+          bold && styles.summaryValueBold,
+          valueColor ? { color: valueColor } : null,
+        ]}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safeArea: {
+  safe: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F7F8FA',
   },
   header: {
     flexDirection: 'row',
@@ -460,67 +843,82 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#FFFFFF',
-    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
-  backButton: {
-    width: 48,
-    height: 48,
+  backBtn: {
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: {
+  headerCenter: {
     flex: 1,
-    fontSize: 17,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#1A1A2E',
+  },
+  headerStep: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  headerRight: {
+    width: 44,
+  },
+  progressBar: {
+    height: 3,
+    backgroundColor: '#E5E7EB',
+  },
+  progressFill: {
+    height: 3,
+    backgroundColor: '#1A6B3C',
+    borderRadius: 2,
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 48,
   },
-  stepCard: {
+  stepContainer: {
+    gap: 16,
+  },
+  stepTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 2,
+  },
+  stepSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  // ── Carte montant ──────────────────────────────────────────────────────────
+  amountCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
-    marginBottom: 20,
-  },
-  stepTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 20,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  detailLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1A1A2E',
-  },
-  detailValue: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  amountBlock: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
   amountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
   },
   amountLabel: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#6B7280',
   },
   amountValue: {
@@ -528,18 +926,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1A1A2E',
   },
-  penaltyLabel: {
-    color: '#92400E',
-  },
-  penaltyValue: {
+  penaltyText: {
     color: '#D0021B',
   },
-  totalRow: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    marginBottom: 0,
+  penaltyDays: {
+    fontSize: 12,
+    color: '#D0021B',
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F0F0F0',
   },
   totalLabel: {
     fontSize: 16,
@@ -547,92 +944,176 @@ const styles = StyleSheet.create({
     color: '#1A1A2E',
   },
   totalValue: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '800',
     color: '#1A6B3C',
   },
-  methodCardWrapper: {
-    marginBottom: 16,
+  // ── Info block ─────────────────────────────────────────────────────────────
+  infoBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    padding: 14,
   },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1E40AF',
+    lineHeight: 18,
+  },
+  // ── Carte méthode ──────────────────────────────────────────────────────────
   methodCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
     padding: 16,
-    borderRadius: 12,
+    gap: 14,
     borderWidth: 2,
     borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  phoneOptions: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    gap: 8,
+  methodCardSelected: {
+    borderWidth: 2,
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  phoneProfileLabel: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginBottom: 4,
+  methodIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  radioRow: {
+  methodInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  methodLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 4,
+    gap: 8,
+    flexWrap: 'wrap',
   },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  methodLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A1A2E',
+  },
+  methodBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  methodBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  methodSublabel: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 2,
     borderColor: '#D1D5DB',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  radioSelected: {
-    borderColor: '#1A6B3C',
-    backgroundColor: '#1A6B3C',
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FFFFFF',
   },
-  radioLabel: {
+  // ── Section téléphone ──────────────────────────────────────────────────────
+  phoneSection: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 4,
+    gap: 12,
+  },
+  phoneSectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  phoneOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  phoneOptionLabel: {
     fontSize: 14,
     color: '#1A1A2E',
     fontWeight: '500',
   },
+  phoneOptionValue: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
   phoneInput: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    color: '#1A1A2E',
-    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#1A1A2E',
   },
   phoneInputError: {
     borderColor: '#D0021B',
   },
-  methodCardSelected: {
-    borderColor: '#1A6B3C',
+  phoneError: {
+    fontSize: 12,
+    color: '#D0021B',
+    marginTop: -4,
+  },
+  // ── Info CASH sélectionné ──────────────────────────────────────────────────
+  cashInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
     backgroundColor: '#E8F5EE',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 4,
   },
-  methodLabel: {
+  cashInfoText: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1A1A2E',
-  },
-  methodLabelSelected: {
+    fontSize: 13,
     color: '#1A6B3C',
+    lineHeight: 18,
   },
-  summaryBlock: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+  // ── Récapitulatif ──────────────────────────────────────────────────────────
+  summaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
   },
   summaryLabel: {
     fontSize: 14,
@@ -640,56 +1121,105 @@ const styles = StyleSheet.create({
   },
   summaryValue: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#1A1A2E',
   },
-  summaryTotal: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+  summaryValueBold: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1A6B3C',
   },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#F0F0F0',
+  },
+  // ── Bloc info mode ─────────────────────────────────────────────────────────
+  modeInfoCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  modeInfoContent: {
+    flex: 1,
+    gap: 6,
+  },
+  modeInfoTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1A2E',
+  },
+  modeInfoBody: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  // ── CTA ───────────────────────────────────────────────────────────────────
   primaryBtn: {
-    backgroundColor: '#1A6B3C',
-    borderRadius: 12,
-    paddingVertical: 16,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1A6B3C',
+    borderRadius: 14,
+    paddingVertical: 16,
     minHeight: 56,
+    shadowColor: '#1A6B3C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  cashConfirmBtn: {
+    backgroundColor: '#1A6B3C',
   },
   primaryBtnDisabled: {
-    opacity: 0.5,
+    opacity: 0.55,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   primaryBtnText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  pinSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 24,
-  },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#D0021B',
-    fontWeight: '600',
-  },
-  loaderOverlay: {
-    marginTop: 24,
+  // ── PIN ───────────────────────────────────────────────────────────────────
+  pinHeader: {
     alignItems: 'center',
     gap: 12,
+    marginBottom: 8,
   },
-  loaderText: {
+  pinIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pinMethodBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  pinMethodText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  submittingOverlay: {
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 24,
+  },
+  submittingText: {
     fontSize: 14,
     color: '#6B7280',
   },

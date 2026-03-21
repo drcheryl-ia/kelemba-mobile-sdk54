@@ -34,6 +34,7 @@ function formatDateTime(dateStr: string): string {
 const METHOD_LABELS: Record<PaymentReceiptData['method'], string> = {
   ORANGE_MONEY: 'Orange Money',
   TELECEL_MONEY: 'Telecel Money',
+  CASH: 'Espèces',
 };
 
 export const PaymentReceiptCard: React.FC<PaymentReceiptCardProps> = ({
@@ -48,7 +49,12 @@ export const PaymentReceiptCard: React.FC<PaymentReceiptCardProps> = ({
   } = usePaymentReceipt(receipt);
 
   const methodLabel = METHOD_LABELS[receipt.method];
-  const methodColor = receipt.method === 'ORANGE_MONEY' ? '#F5A623' : '#0055A5';
+  const methodColor =
+    receipt.method === 'ORANGE_MONEY'
+      ? '#F5A623'
+      : receipt.method === 'TELECEL_MONEY'
+        ? '#0055A5'
+        : '#1A6B3C';
 
   return (
     <View style={styles.card}>

@@ -36,6 +36,7 @@ const POLL_INTERVAL_MS = 3_000;
 const METHOD_LABELS: Record<PaymentMethod, string> = {
   ORANGE_MONEY: 'Orange Money',
   TELECEL_MONEY: 'Telecel Money',
+  CASH: 'Espèces',
 };
 
 const SUPPORT_WHATSAPP = 'https://wa.me/23670000000';
@@ -62,10 +63,16 @@ export const PaymentStatusScreen: React.FC<Props> = ({
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { paymentUid, tontineUid, tontineName, amount, method } = route.params;
+  const { paymentUid, tontineUid, tontineName, amount, method, initialStatus } =
+    route.params;
 
-  const { status, data, isTimeout, attempts, maxAttempts } =
-    usePaymentPolling(paymentUid);
+  // CASH : statut COMPLETED synchrone — pas de polling
+  const skipPolling = method === 'CASH' || initialStatus === 'COMPLETED';
+
+  const { status, data, isTimeout, attempts, maxAttempts } = usePaymentPolling(
+    paymentUid,
+    skipPolling
+  );
 
   const rotation = useSharedValue(0);
   const successScale = useSharedValue(0);
@@ -163,7 +170,12 @@ export const PaymentStatusScreen: React.FC<Props> = ({
   };
 
   const handleOperatorHelp = () => {
-    const url = method === 'ORANGE_MONEY' ? ORANGE_HELP_URL : TELECEL_HELP_URL;
+    const url =
+      method === 'ORANGE_MONEY'
+        ? ORANGE_HELP_URL
+        : method === 'TELECEL_MONEY'
+          ? TELECEL_HELP_URL
+          : SUPPORT_WHATSAPP;
     Linking.openURL(url).catch(() => {});
   };
 

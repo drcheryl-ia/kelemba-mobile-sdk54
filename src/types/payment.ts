@@ -6,7 +6,7 @@ import type { PaymentStatus } from '@/types/domain.types';
 
 export type { PaymentStatus };
 
-export type PaymentMethod = 'ORANGE_MONEY' | 'TELECEL_MONEY';
+export type PaymentMethod = 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH';
 
 export interface InitiatePaymentPayload {
   cycleUid: string;
@@ -17,6 +17,8 @@ export interface InitiatePaymentPayload {
 
 export interface InitiatePaymentResponse {
   uid: string;
+  /** Statut renvoyé par le backend (COMPLETED pour CASH, PROCESSING pour Mobile Money, etc.) */
+  status?: PaymentStatus;
 }
 
 export interface PaymentStatusDto {

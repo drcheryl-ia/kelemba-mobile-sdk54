@@ -104,7 +104,7 @@ export interface AcceptInviteDto {
 }
 
 // ── PAIEMENTS ─────────────────────────────────────────────
-export type PaymentMethod = 'ORANGE_MONEY' | 'TELECEL_MONEY';
+export type PaymentMethod = 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH';
 
 export interface InitiatePaymentDto {
   cycleUid: string;

@@ -116,6 +116,9 @@ export const ContributionHistoryScreen: React.FC<Props> = ({ navigation }) => {
             {item.method === 'TELECEL_MONEY' && (
               <Ionicons name="phone-portrait" size={16} color="#0055A5" />
             )}
+            {item.method === 'CASH' && (
+              <Ionicons name="cash-outline" size={16} color="#1A6B3C" />
+            )}
             {item.method === 'SYSTEM' && (
               <Ionicons name="server" size={16} color="#6B7280" />
             )}
@@ -124,7 +127,9 @@ export const ContributionHistoryScreen: React.FC<Props> = ({ navigation }) => {
                 ? 'Orange Money'
                 : item.method === 'TELECEL_MONEY'
                   ? 'Telecel Money'
-                  : item.method}
+                  : item.method === 'CASH'
+                    ? 'Espèces'
+                    : item.method}
             </Text>
           </View>
         </View>
