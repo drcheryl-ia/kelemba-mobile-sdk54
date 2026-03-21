@@ -1,5 +1,5 @@
 /**
- * API paiements — prochain paiement dû, historique, initiation.
+ * API paiements — prochain paiement dû, historique, initiation Mobile Money.
  */
 import { apiClient } from '@/api/apiClient';
 import { ENDPOINTS } from '@/api/endpoints';
@@ -20,6 +20,12 @@ export interface PaymentHistoryResponse {
   page: number;
   limit: number;
 }
+
+/** Réponse brute API (Nest) — peut exposer `payments` ou `data` pour la liste. */
+type PaymentHistoryApiPayload = PaymentHistoryResponse & {
+  payments?: unknown[];
+  pageSize?: number;
+};
 
 /**
  * Récupère le prochain paiement dû de l'utilisateur connecté.
@@ -69,11 +75,15 @@ export async function getPaymentHistory(
     if (status != null && status !== '') {
       params.status = status;
     }
-    const response = await apiClient.get<PaymentHistoryResponse>(url, {
+    const response = await apiClient.get<PaymentHistoryApiPayload>(url, {
       params,
     });
-    const data = response.data as PaymentHistoryResponse & { pageSize?: number };
-    const rawItems = Array.isArray(data?.data) ? data.data : [];
+    const data = response.data;
+    const rawItems = Array.isArray(data?.payments)
+      ? data.payments
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
     const items: PaymentHistoryItem[] = rawItems.map((item: unknown) => {
       const r = item as Record<string, unknown>;
       return {
@@ -105,7 +115,7 @@ export async function getPaymentHistory(
 }
 
 /**
- * Initier un paiement (cotisation).
+ * Initier un paiement Mobile Money (cotisation).
  * POST /api/v1/payments/initiate
  * @returns InitiatePaymentResponse avec uid du paiement créé
  */

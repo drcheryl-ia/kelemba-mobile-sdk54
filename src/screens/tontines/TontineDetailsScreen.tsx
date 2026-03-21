@@ -40,6 +40,7 @@ import { parseApiError } from '@/api/errors/errorHandler';
 import { logger } from '@/utils/logger';
 import { formatFcfa, maskPhone } from '@/utils/formatters';
 import { getInitials, hashToColor } from '@/utils/avatarUtils';
+import { resolveCurrentCycleMetrics } from '@/utils/currentCycleMetrics';
 import QRCode from 'react-native-qrcode-svg';
 import { ScoreProgressBar } from '@/components/profile/ScoreProgressBar';
 import { ErrorToast } from '@/components/ui/ErrorToast';
@@ -427,6 +428,18 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     return Math.min(1, currentCycle.totalAmount / expectedTotal);
   }, [currentCycle, expectedTotal]);
 
+  const currentCycleMetrics = useMemo(
+    () =>
+      resolveCurrentCycleMetrics({
+        currentCycle,
+        amountPerShare: tontine?.amountPerShare ?? 0,
+        members,
+      }),
+    [currentCycle, tontine?.amountPerShare, members]
+  );
+  void expectedTotal;
+  void progressRatio;
+
   const delayedByMemberIds = currentCycle?.delayedByMemberIds ?? [];
   const reportCycles = report?.cycles ?? [];
 
@@ -628,12 +641,12 @@ export const TontineDetailsScreen: React.FC<Props> = ({
                     {t('tontineDetails.monthLabel', 'Mois')} {currentCycle.cycleNumber} / {tontine.totalCycles}
                   </Text>
                   <Text style={styles.cycleOverviewPercent}>
-                    {Math.round(progressRatio * 100)}%
+                    {Math.round(currentCycleMetrics.progress * 100)}%
                   </Text>
                 </View>
                 <View style={styles.progressTrack}>
                   <View
-                    style={[styles.progressFill, { width: `${progressRatio * 100}%` }]}
+                    style={[styles.progressFill, { width: `${currentCycleMetrics.progress * 100}%` }]}
                   />
                 </View>
                 {currentCycle.expectedDate && (
@@ -657,7 +670,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
                     {t('tontineDetails.collectedLabel', 'Collecté')}
                   </Text>
                   <Text style={styles.metricCardValueGreen}>
-                    {formatFcfa(currentCycle.totalAmount)}
+                    {formatFcfa(currentCycleMetrics.collected)}
                   </Text>
                 </View>
                 <View style={styles.metricCard}>
@@ -665,7 +678,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
                     {t('tontineDetails.expectedLabel', 'Attendu')}
                   </Text>
                   <Text style={styles.metricCardValueOrange}>
-                    {formatFcfa(expectedTotal)}
+                    {formatFcfa(currentCycleMetrics.expected)}
                   </Text>
                 </View>
               </View>

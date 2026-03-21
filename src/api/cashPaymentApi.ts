@@ -4,6 +4,7 @@
 import { apiClient } from '@/api/apiClient';
 import { ENDPOINTS } from '@/api/endpoints';
 import { parseApiError } from '@/api/errors/errorHandler';
+import type { PaymentStatus } from '@/types/payment';
 import { logger } from '@/utils/logger';
 
 export interface InitiateCashPayload {
@@ -18,8 +19,9 @@ export interface InitiateCashPayload {
 
 export interface CashInitiateResult {
   paymentUid: string;
-  validationRequestUid: string;
+  validationRequestUid: string | null;
   message: string;
+  status: PaymentStatus;
 }
 
 export interface CashPendingItem {
@@ -39,11 +41,21 @@ export async function initiateCashPayment(
   payload: InitiateCashPayload
 ): Promise<CashInitiateResult> {
   try {
-    const res = await apiClient.post<CashInitiateResult>(
+    const res = await apiClient.post<{
+      paymentUid: string;
+      validationRequestUid?: string | null;
+      message?: string;
+      status?: PaymentStatus;
+    }>(
       ENDPOINTS.PAYMENTS.CASH_INITIATE.url,
       payload
     );
-    return res.data;
+    return {
+      paymentUid: res.data.paymentUid,
+      validationRequestUid: res.data.validationRequestUid ?? null,
+      message: res.data.message ?? '',
+      status: res.data.status ?? 'PENDING',
+    };
   } catch (err: unknown) {
     logger.error('[CashPayment] initiate failed', { err });
     throw parseApiError(err);
@@ -100,7 +112,9 @@ export async function getCashPendingRequests(tontineUid: string): Promise<CashPe
     const res = await apiClient.get<CashPendingItem[]>(ep.url);
     return Array.isArray(res.data) ? res.data : [];
   } catch (err: unknown) {
-    logger.warn('[CashPayment] getCashPendingRequests failed', { tontineUid, err });
+    const apiErr = parseApiError(err);
+    if (apiErr.httpStatus === 404) return [];
+    logger.warn('[CashPayment] getCashPendingRequests failed', { tontineUid });
     return [];
   }
 }

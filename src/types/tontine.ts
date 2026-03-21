@@ -21,6 +21,9 @@ export interface CurrentCycle {
   expectedDate: string;
   actualPayoutDate: string | null;
   totalAmount: number;
+  collectedAmount?: number;
+  totalExpected?: number;
+  collectionProgress?: number;
   delayedByMemberIds: string[] | null;
   status: CycleStatus;
   /** Membership uid du bénéficiaire du tour (exclu du montant attendu côté mobile) — GET /cycles/current */

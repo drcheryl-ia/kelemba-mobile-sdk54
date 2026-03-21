@@ -9,6 +9,7 @@ import { parseApiError } from './errors/errorHandler';
 import { ApiError } from './errors/ApiError';
 import { ApiErrorCode } from './errors/errorCodes';
 import { logger } from '@/utils/logger';
+import { normalizeCurrentCycle as normalizeCurrentCycleResponse } from '@/utils/currentCycleNormalizer';
 import type {
   TontinePreview,
   TontineDto,
@@ -163,6 +164,40 @@ function optionalFiniteNumber(v: unknown): number | null | undefined {
   if (v === null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function optionalStringDate(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  return String(v).split('T')[0];
+}
+
+function optionalStringArray(v: unknown): string[] | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (!Array.isArray(v)) return undefined;
+  return v.map((item) => String(item));
+}
+
+export function normalizeCurrentCycle(raw: Record<string, unknown>): CurrentCycle {
+  return {
+    uid: String(raw.uid ?? ''),
+    cycleNumber: Number(raw.cycleNumber ?? 0),
+    expectedDate: optionalStringDate(raw.expectedDate) ?? '',
+    actualPayoutDate: optionalStringDate(raw.actualPayoutDate) ?? null,
+    totalAmount:
+      optionalFiniteNumber(raw.totalAmount ?? raw.totalExpected ?? raw.collectedAmount) ?? 0,
+    collectedAmount: optionalFiniteNumber(raw.collectedAmount),
+    totalExpected: optionalFiniteNumber(raw.totalExpected),
+    collectionProgress: optionalFiniteNumber(raw.collectionProgress),
+    delayedByMemberIds:
+      optionalStringArray(raw.delayedByMemberIds ?? raw.delayedByMemberUids) ?? null,
+    status: (raw.status ?? 'PENDING') as CurrentCycle['status'],
+    beneficiaryMembershipUid:
+      raw.beneficiaryMembershipUid != null
+        ? String(raw.beneficiaryMembershipUid)
+        : null,
+  };
 }
 
 function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem {
@@ -524,12 +559,12 @@ export const getCurrentCycle = async (
 ): Promise<CurrentCycle | null> => {
   try {
     const { url } = ENDPOINTS.CYCLES.CURRENT(tontineUid);
-    const response = await apiClient.get<CurrentCycle>(url);
+    const response = await apiClient.get<Record<string, unknown> | null>(url);
     // 204 No Content ou body vide = aucun cycle actif/à venir (état métier normal)
     if (response.status === 204 || response.data == null) {
       return null;
     }
-    return response.data;
+    return normalizeCurrentCycleResponse(response.data);
   } catch (err: unknown) {
     // 404 = tontine introuvable OU (rétrocompat) aucun cycle actif — traiter comme état vide
     if (axios.isAxiosError(err) && err.response?.status === 404) {

@@ -34,7 +34,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useSelector } from 'react-redux';
 import type { RootState } from '@/store/store';
-import { selectUserPhone } from '@/store/authSlice';
+import {
+  selectCurrentUser,
+  selectUserPhone,
+  selectUserUid,
+} from '@/store/authSlice';
+import { initiateCashPayment } from '@/api/cashPaymentApi';
 import { initiatePayment } from '@/api/paymentApi';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { ApiErrorCode } from '@/api/errors/errorCodes';
@@ -42,7 +47,16 @@ import { logger } from '@/utils/logger';
 import { formatFcfa, maskPhone } from '@/utils/formatters';
 import { PinPad } from '@/components/auth';
 import { CONSTANTS } from '@/config/constants';
-import type { PaymentMethod } from '@/types/payment';
+import type { MobileMoneyMethod, PaymentMethod } from '@/types/payment';
+import { useTontineMembers } from '@/hooks/useTontineMembers';
+import {
+  getCashMethodSublabel,
+  getCashSelectionInfoText,
+  getCashSummaryInfoText,
+  getTontineCreatorName,
+  isTontineCreatorMember,
+  resolvePaymentSubmissionMode,
+} from '@/utils/paymentFlow';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -181,6 +195,8 @@ function resolveErrorMessage(
 export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const currentUser = useSelector((state: RootState) => selectCurrentUser(state));
+  const userUid = useSelector((state: RootState) => selectUserUid(state));
   const userPhone = useSelector((state: RootState) => selectUserPhone(state));
 
   const {
@@ -192,6 +208,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
     penaltyDays,
     cycleNumber,
   } = route.params;
+  const { members } = useTontineMembers(tontineUid);
 
   const totalAmount = baseAmount + (penaltyAmount ?? 0);
 
@@ -209,14 +226,36 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pinValue, setPinValue] = useState('');
 
+  const isTontineCreator = useMemo(
+    () => isTontineCreatorMember(members, userUid),
+    [members, userUid]
+  );
+  const tontineCreatorName = useMemo(() => getTontineCreatorName(members), [members]);
+  const paymentMethods = useMemo(
+    () =>
+      METHODS.map((method) =>
+        method.id === 'CASH'
+          ? { ...method, sublabel: getCashMethodSublabel(isTontineCreator) }
+          : method
+      ),
+    [isTontineCreator]
+  );
   const selectedConfig = useMemo(
-    () => METHODS.find((m) => m.id === selectedMethod) ?? null,
-    [selectedMethod]
+    () => paymentMethods.find((method) => method.id === selectedMethod) ?? null,
+    [paymentMethods, selectedMethod]
   );
 
   const isCash = selectedMethod === 'CASH';
   const isMobileMoney =
     selectedMethod === 'ORANGE_MONEY' || selectedMethod === 'TELECEL_MONEY';
+  const cashSelectionInfoText = useMemo(
+    () => getCashSelectionInfoText(isTontineCreator),
+    [isTontineCreator]
+  );
+  const cashSummaryInfoText = useMemo(
+    () => getCashSummaryInfoText(formatFcfa(totalAmount), isTontineCreator),
+    [isTontineCreator, totalAmount]
+  );
 
   // Nombre d'étapes selon le mode
   const totalSteps = isCash ? 3 : 4;
@@ -233,6 +272,12 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
       ? RCA_PHONE_REGEX.test(userPhone ?? '')
       : RCA_PHONE_REGEX.test(alternatePhone);
   }, [selectedMethod, isCash, useProfilePhone, userPhone, alternatePhone]);
+  const invalidatePaymentQueries = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
+    queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
+    queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+    queryClient.invalidateQueries({ queryKey: ['tontines'] });
+  }, [queryClient, tontineUid]);
 
   // ── Navigation entre étapes ────────────────────────────────────────────────
 
@@ -270,28 +315,39 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
     setIsSubmitting(true);
 
     try {
-      const result = await initiatePayment({
-        cycleUid,
-        amount: totalAmount,
-        method: selectedMethod,
-        idempotencyKey: idempotencyKey.current,
-      });
+      const submissionMode = resolvePaymentSubmissionMode(selectedMethod, isTontineCreator);
 
-      const initialStatus = result.status;
+      if (submissionMode !== 'MOBILE_MONEY') {
+        const receiverName = isTontineCreator
+          ? currentUser?.fullName?.trim() || tontineCreatorName || 'Organisateur'
+          : tontineCreatorName || 'Organisateur';
+        const result = await initiateCashPayment({
+          cycleUid,
+          amount: totalAmount,
+          idempotencyKey: idempotencyKey.current,
+          receiverName,
+        });
+        invalidatePaymentQueries();
 
-      // Invalider les queries quelle que soit la méthode
-      queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
-      queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
-      queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
+        if (submissionMode === 'CASH_CREATOR') {
+          (navigation as unknown as { navigate: (name: string, params: object) => void }).navigate(
+            'PaymentStatusScreen',
+            {
+              paymentUid: result.paymentUid,
+              tontineUid,
+              tontineName,
+              amount: totalAmount,
+              method: 'CASH',
+              initialStatus: 'COMPLETED',
+            }
+          );
+          return;
+        }
 
-      if (isCash) {
-        queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
-        queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
-        queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
         (navigation as unknown as { navigate: (n: string, p: object) => void }).navigate(
           'CashProofScreen',
           {
-            paymentUid: result.uid,
+            paymentUid: result.paymentUid,
             tontineUid,
             tontineName,
             amount: totalAmount,
@@ -300,9 +356,18 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
         return;
       }
 
+      const mobileMoneyMethod = selectedMethod as MobileMoneyMethod;
+      const result = await initiatePayment({
+        cycleUid,
+        amount: totalAmount,
+        method: mobileMoneyMethod,
+        idempotencyKey: idempotencyKey.current,
+      });
+      const initialStatus = result.status;
+      invalidatePaymentQueries();
+
       // Orange / Telecel : COMPLETED immédiat → invalider agrégats
       if (initialStatus === 'COMPLETED') {
-        queryClient.invalidateQueries({ queryKey: ['tontines'] });
         queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
         queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });
       }
@@ -322,13 +387,18 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
       hasSubmitted.current = false;
       const apiErr = parseApiError(err);
       const { title, message, isFinal } = resolveErrorMessage(err, t);
+      const submissionMode = resolvePaymentSubmissionMode(selectedMethod, isTontineCreator);
 
-      logger.error('[PaymentScreen] initiatePayment failed', {
+      logger.error('[PaymentScreen] payment submission failed', {
         method: selectedMethod,
         code: apiErr.code,
       });
 
-      if (apiErr.httpStatus === 409 && apiErr.code !== ApiErrorCode.PAYMENT_DUPLICATE) {
+      if (
+        apiErr.httpStatus === 409 &&
+        apiErr.code !== ApiErrorCode.PAYMENT_DUPLICATE &&
+        submissionMode !== 'CASH_CREATOR'
+      ) {
         Alert.alert(
           t('payment.inProgress', 'Paiement en cours'),
           t(
@@ -367,8 +437,11 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
     totalAmount,
     tontineUid,
     tontineName,
-    isCash,
+    isTontineCreator,
+    currentUser,
+    tontineCreatorName,
     queryClient,
+    invalidatePaymentQueries,
     navigation,
     t,
   ]);
@@ -486,7 +559,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
               Choisissez comment régler votre cotisation
             </Text>
 
-            {METHODS.map((method) => {
+            {paymentMethods.map((method) => {
               const isSelected = selectedMethod === method.id;
               return (
                 <View key={method.id}>
@@ -633,8 +706,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
                         color="#1A6B3C"
                       />
                       <Text style={styles.cashInfoText}>
-                        Le paiement est enregistré immédiatement après confirmation.
-                        Assurez-vous d'avoir les espèces disponibles avant de continuer.
+                        {cashSelectionInfoText}
                       </Text>
                     </View>
                   )}
@@ -693,8 +765,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
                 <View style={styles.modeInfoContent}>
                   <Text style={styles.modeInfoTitle}>Paiement en espèces</Text>
                   <Text style={styles.modeInfoBody}>
-                    En confirmant, vous attestez remettre {formatFcfa(totalAmount)} en
-                    espèces à l'organisateur. Le paiement sera enregistré immédiatement.
+                    {cashSummaryInfoText}
                   </Text>
                 </View>
               </View>

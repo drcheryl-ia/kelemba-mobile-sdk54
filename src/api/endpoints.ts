@@ -225,15 +225,15 @@ export const ENDPOINTS = {
     },
     CASH_SUBMIT_PROOF: (paymentUid: string) => ({
       method: 'PATCH' as const,
-      url: `${BASE}/v1/payments/${paymentUid}/cash-proof`,
+      url: `${BASE}/v1/payments/cash/${paymentUid}/submit-proof`,
     }),
     CASH_PENDING: (tontineUid: string) => ({
       method: 'GET' as const,
-      url: `${BASE}/v1/tontines/${tontineUid}/cash-pending`,
+      url: `${BASE}/v1/payments/cash/pending/${tontineUid}`,
     }),
     CASH_VALIDATE: (paymentUid: string) => ({
       method: 'POST' as const,
-      url: `${BASE}/v1/payments/${paymentUid}/cash-validate`,
+      url: `${BASE}/v1/payments/cash/${paymentUid}/validate`,
     }),
   },
 
