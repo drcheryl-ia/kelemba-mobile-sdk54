@@ -15,19 +15,11 @@ import { useDashboard } from '@/hooks/useDashboard';
 import { useTontines } from '@/hooks/useTontines';
 import { isMembershipPending, mergeDisplayableTontines } from '@/utils/tontineMerge';
 import type { TontineListItem } from '@/types/tontine';
-import {
-  pickMostUrgentTontineForDashboard,
-  deriveTontinePaymentUiState,
-  reminderHeadlineFr,
-  resolveAmountsForListItem,
-  type DashboardBannerReminderKind,
-} from '@/utils/tontinePaymentState';
 import { useNextPayment } from '@/hooks/useNextPayment';
 import { useApiError } from '@/hooks/useApiError';
 import {
   ProfileHeader,
   ScoreCard,
-  AlertBanner,
   BalanceCard,
   QuickActions,
   TontinesList,
@@ -49,12 +41,7 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     refetchAll,
   } = useDashboard();
 
-  const {
-    nextPayment,
-    isProcessing,
-    error: nextPaymentError,
-    refetch: refetchNextPayment,
-  } = useNextPayment();
+  const { error: nextPaymentError, refetch: refetchNextPayment } = useNextPayment();
 
   const {
     tontines: myTontines,
@@ -122,67 +109,6 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
   const activeTontinesCount = officialTontines.length;
 
-  const dashboardBanner = useMemo(() => {
-    if (nextPayment != null && !isProcessing) {
-      return { mode: 'api' as const, nextPayment };
-    }
-    const t = pickMostUrgentTontineForDashboard(officialTontines);
-    if (!t) return null;
-    const st = deriveTontinePaymentUiState(t);
-    if (
-      st.uiStatus !== 'OVERDUE' &&
-      st.uiStatus !== 'DUE_TODAY' &&
-      st.uiStatus !== 'DUE_SOON'
-    ) {
-      return null;
-    }
-    let kind: DashboardBannerReminderKind = 'SOON';
-    if (st.uiStatus === 'OVERDUE') kind = 'OVERDUE';
-    else if (st.uiStatus === 'DUE_TODAY') kind = 'TODAY';
-    return { mode: 'fallback' as const, tontine: t, state: st, kind };
-  }, [nextPayment, isProcessing, officialTontines]);
-
-  const showNextPaymentBanner = dashboardBanner !== null;
-
-  const bannerDaysLeft = useMemo(() => {
-    if (dashboardBanner?.mode === 'api' && dashboardBanner.nextPayment?.dueDate) {
-      const due = new Date(
-        dashboardBanner.nextPayment.dueDate.split('T')[0] + 'T00:00:00.000Z'
-      );
-      const now = new Date();
-      const todayUTC = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-      );
-      return Math.round((due.getTime() - todayUTC.getTime()) / 86_400_000);
-    }
-    if (dashboardBanner?.mode === 'fallback') {
-      return dashboardBanner.state.daysLeft ?? 0;
-    }
-    return 0;
-  }, [dashboardBanner]);
-
-  const bannerReminderKind = (dl: number): DashboardBannerReminderKind => {
-    if (dl < 0) return 'OVERDUE';
-    if (dl === 0) return 'TODAY';
-    return 'SOON';
-  };
-
-  const bannerTitle =
-    dashboardBanner?.mode === 'api'
-      ? `${reminderHeadlineFr(bannerReminderKind(bannerDaysLeft))} — ${dashboardBanner.nextPayment.tontineName}`
-      : dashboardBanner?.mode === 'fallback'
-        ? `${reminderHeadlineFr(dashboardBanner.kind)} — ${dashboardBanner.tontine.name}`
-        : '';
-
-  const bannerAmountLineOverride =
-    dashboardBanner?.mode === 'fallback'
-      ? (() => {
-          const a = resolveAmountsForListItem(dashboardBanner.tontine);
-          if (a.amount > 0 || a.totalDue > 0) return undefined;
-          return `Échéance : ${dashboardBanner.state.displayDate ?? 'Date indisponible'}`;
-        })()
-      : undefined;
-
   const userScore = scoreData.data?.currentScore ?? 500; // défaut 500 = valeur BDD par défaut
   const unreadNotifications = unreadCount.data?.count ?? 0;
 
@@ -219,7 +145,8 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={styles.divider} />
 
-        {/* ── Rappel cotisation ── */}
+        {/* Rappel paiement — source unique : useNextPayment().
+            Ne pas ajouter d'autre bloc nextPayment ailleurs dans ce composant. */}
         <PaymentReminderBanner />
 
         {/* ── Score Kelemba ── */}
@@ -231,36 +158,6 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
             compact
           />
         </GradientBorderCard>
-
-        {showNextPaymentBanner && dashboardBanner && (
-          <AlertBanner
-            daysLeft={bannerDaysLeft}
-            tontineName={
-              dashboardBanner.mode === 'api'
-                ? dashboardBanner.nextPayment.tontineName
-                : dashboardBanner.tontine.name
-            }
-            amount={
-              dashboardBanner.mode === 'api'
-                ? dashboardBanner.nextPayment.amountDue
-                : resolveAmountsForListItem(dashboardBanner.tontine).amount
-            }
-            penaltyAmount={
-              dashboardBanner.mode === 'api'
-                ? dashboardBanner.nextPayment.penaltyAmount ?? 0
-                : resolveAmountsForListItem(dashboardBanner.tontine).penaltyAmount
-            }
-            totalDue={
-              dashboardBanner.mode === 'api'
-                ? dashboardBanner.nextPayment.totalDue
-                : resolveAmountsForListItem(dashboardBanner.tontine).totalDue
-            }
-            titleOverride={bannerTitle}
-            amountLineOverride={bannerAmountLineOverride}
-            onCotiserPress={() => navigation.navigate('Payments')}
-            isVisible={true}
-          />
-        )}
 
         <GradientBorderCard style={styles.cardWrapper} innerStyle={styles.cardInner}>
           <BalanceCard

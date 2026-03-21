@@ -103,6 +103,10 @@ type PaymentReminderFallback = {
 
 type PaymentReminderSource = NextPaymentData | PaymentReminderFallback;
 
+function isApiNextPayment(p: PaymentReminderSource): p is NextPaymentData {
+  return 'cycleUid' in p && typeof p.cycleUid === 'string' && p.cycleUid.length > 0;
+}
+
 // ── Composant ─────────────────────────────────────────────────────
 export const PaymentReminderBanner: React.FC = () => {
   const navigation = useNavigation();
@@ -202,7 +206,20 @@ export const PaymentReminderBanner: React.FC = () => {
     logger.info('[PaymentReminderBanner] Cotiser pressed', {
       tontineUid: payment.tontineUid,
     });
-    (navigation as Nav).navigate('TontineDetails', {
+    const nav = navigation as Nav;
+    if (isApiNextPayment(payment)) {
+      nav.navigate('PaymentScreen', {
+        cycleUid: payment.cycleUid,
+        tontineUid: payment.tontineUid,
+        tontineName: payment.tontineName,
+        baseAmount: payment.amountDue,
+        penaltyAmount: payment.penaltyAmount ?? 0,
+        penaltyDays: (payment.penaltyAmount ?? 0) > 0 ? 1 : 0,
+        cycleNumber: payment.cycleNumber,
+      });
+      return;
+    }
+    nav.navigate('TontineDetails', {
       tontineUid: payment.tontineUid,
       isCreator: false,
     });
