@@ -150,7 +150,6 @@ export const PaymentReminderScreen: React.FC<Props> = ({
       tontineName,
       baseAmount: amountDue,
       penaltyAmount: penaltyAmount ?? 0,
-      penaltyDays: penaltyAmount > 0 ? 1 : 0,
       cycleNumber,
     });
   };

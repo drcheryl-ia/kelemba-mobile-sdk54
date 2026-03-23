@@ -36,10 +36,13 @@ export type ProfileStackParamList = {
 };
 
 // ── Main Tabs (authentifié, KYC = VERIFIED) ──────────────────
+/** Onglet initial de l’écran Paiements (cotisations / validations espèces). */
+export type PaymentsTabInitialSegment = 'contributions' | 'cashValidations';
+
 export type MainTabParamList = {
   Dashboard: undefined;
   Tontines: { initialTab?: 'mine' | 'invitations'; openJoinModal?: boolean } | undefined;
-  Payments: undefined;
+  Payments: { initialSegment?: PaymentsTabInitialSegment } | undefined;
   History: undefined;
   Profile: NavigatorScreenParams<ProfileStackParamList> | undefined;
 };
@@ -95,6 +98,14 @@ export type RootStackParamList = {
     amount: number;
     method: 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH';
     initialStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
+  };
+  CyclePayoutScreen: {
+    tontineUid: string;
+    tontineName: string;
+    cycleUid: string;
+    cycleNumber: number;
+    beneficiaryName: string;
+    netAmount: number;
   };
   CashProofScreen: {
     paymentUid: string;

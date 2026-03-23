@@ -2,7 +2,24 @@
  * État UI paiement / échéance pour une tontine liste — logique pure centralisée.
  * Ne jamais inférer « à jour » sans signal explicite du backend ou données cohérentes.
  */
+import type { PaymentStatus } from '@/types/domain.types';
 import type { TontineListItem } from '@/types/tontine';
+
+function coerceListItemPaymentStatus(tontine: TontineListItem): PaymentStatus | null {
+  if (tontine.currentCyclePaymentStatus != null) {
+    return tontine.currentCyclePaymentStatus;
+  }
+  const ps = tontine.paymentStatus;
+  if (ps == null || ps === '') return null;
+  const allowed: PaymentStatus[] = [
+    'PENDING',
+    'PROCESSING',
+    'COMPLETED',
+    'FAILED',
+    'REFUNDED',
+  ];
+  return allowed.includes(ps as PaymentStatus) ? (ps as PaymentStatus) : null;
+}
 
 export type PaymentUiStatus =
   | 'UP_TO_DATE'
@@ -12,6 +29,18 @@ export type PaymentUiStatus =
   | 'UNKNOWN';
 
 export type BadgeTone = 'success' | 'warning' | 'danger' | 'muted';
+export type TontineDueState = 'DUE' | 'SETTLED' | 'PROCESSING' | 'UNKNOWN';
+
+export interface ResolvedTontinePaymentContext {
+  scheduledDate: string | null;
+  displayScheduledDate: string | null;
+  daysLeft: number | null;
+  dueState: TontineDueState;
+  amount: number;
+  penaltyAmount: number;
+  totalDue: number;
+  showAmountBreakdown: boolean;
+}
 
 export interface TontinePaymentUiState {
   uiStatus: PaymentUiStatus;
@@ -67,6 +96,42 @@ function unknownState(eligible: boolean): TontinePaymentUiState {
     daysOverdue: null,
     badgeLabel: '… Statut indisponible',
     badgeTone: 'muted',
+    eligibleForPaymentReminder: eligible,
+    needsPaymentAttention: false,
+  };
+}
+
+function scheduledOnlyState(
+  raw: string,
+  daysLeft: number | null,
+  eligible: boolean
+): TontinePaymentUiState {
+  return {
+    uiStatus: 'UNKNOWN',
+    rawPaymentDate: raw.split('T')[0],
+    displayDate: formatFrShortFromIso(raw),
+    daysLeft,
+    daysOverdue: null,
+    badgeLabel: 'Date prevue',
+    badgeTone: 'muted',
+    eligibleForPaymentReminder: eligible,
+    needsPaymentAttention: false,
+  };
+}
+
+function processingState(
+  raw: string | null,
+  daysLeft: number | null,
+  eligible: boolean
+): TontinePaymentUiState {
+  return {
+    uiStatus: 'UNKNOWN',
+    rawPaymentDate: raw ? raw.split('T')[0] : null,
+    displayDate: raw ? formatFrShortFromIso(raw) : null,
+    daysLeft,
+    daysOverdue: null,
+    badgeLabel: 'Paiement en cours',
+    badgeTone: 'warning',
     eligibleForPaymentReminder: eligible,
     needsPaymentAttention: false,
   };
@@ -133,6 +198,108 @@ function upToDateState(raw: string | null, daysLeft: number | null, eligible: bo
   };
 }
 
+function normalizeDate(value: string | null | undefined): string | null {
+  if (value == null || value === '') return null;
+  return String(value).split('T')[0];
+}
+
+/**
+ * Date à afficher pour l’échéance (liste, badges, montants) — alignée backend.
+ * - Dette en cours : `currentDueDate` puis `nextPaymentDate` puis date du cycle courant.
+ * - À jour sur le cycle : `nextScheduledCycleDate` puis `nextDueDate` puis `nextPaymentDate`
+ *   (ne pas réutiliser `currentCycleExpectedDate` comme « prochaine » une fois soldé).
+ */
+export function resolveDisplayPaymentDate(tontine: TontineListItem): string | null {
+  const dueState = resolveTontineDueState(tontine);
+  const currentDue = normalizeDate(tontine.currentDueDate);
+  const nextScheduled = normalizeDate(tontine.nextScheduledCycleDate);
+  const nextDue = normalizeDate(tontine.nextDueDate);
+  const nextPayment = normalizeDate(tontine.nextPaymentDate);
+  const cycleExpected = normalizeDate(tontine.currentCycleExpectedDate);
+
+  if (dueState === 'DUE' || dueState === 'PROCESSING') {
+    return currentDue ?? nextPayment ?? cycleExpected;
+  }
+
+  if (dueState === 'SETTLED') {
+    return nextScheduled ?? nextDue ?? nextPayment ?? null;
+  }
+
+  if (tontine.hasPaymentDue === true) {
+    return currentDue ?? nextPayment ?? cycleExpected;
+  }
+  if (tontine.hasPaymentDue === false) {
+    return nextScheduled ?? nextDue ?? nextPayment ?? null;
+  }
+
+  return nextScheduled ?? nextDue ?? nextPayment ?? cycleExpected ?? null;
+}
+
+/** @deprecated Préférer `resolveDisplayPaymentDate` — alias conservé pour imports existants */
+export function resolveScheduledPaymentDate(tontine: TontineListItem): string | null {
+  return resolveDisplayPaymentDate(tontine);
+}
+
+/**
+ * Échéance du cycle courant côté membre (détail tontine) — avant toute « prochaine » date future.
+ */
+export function resolveCurrentCycleMemberDueDate(tontine: TontineListItem): string | null {
+  return (
+    normalizeDate(tontine.currentDueDate) ??
+    normalizeDate(tontine.nextPaymentDate) ??
+    normalizeDate(tontine.currentCycleExpectedDate)
+  );
+}
+
+export function resolveTontineDueState(tontine: TontineListItem): TontineDueState {
+  const paymentStatus = coerceListItemPaymentStatus(tontine);
+
+  if (paymentStatus === 'COMPLETED') return 'SETTLED';
+  if (paymentStatus === 'PROCESSING') return 'PROCESSING';
+  if (
+    paymentStatus === 'PENDING' ||
+    paymentStatus === 'FAILED' ||
+    paymentStatus === 'REFUNDED'
+  ) {
+    return 'DUE';
+  }
+  if (tontine.hasPaymentDue === true) return 'DUE';
+  if (tontine.hasPaymentDue === false) return 'SETTLED';
+  return 'UNKNOWN';
+}
+
+export function resolveTontinePaymentContext(
+  tontine: TontineListItem,
+  now = new Date()
+): ResolvedTontinePaymentContext {
+  const scheduledDate = resolveScheduledPaymentDate(tontine);
+  const dueTs = scheduledDate ? parseLocalDateOnly(scheduledDate) : null;
+  const daysLeft =
+    dueTs !== null ? calendarDaysBetween(dueTs, startOfLocalDay(now)) : null;
+  const shares = tontine.userSharesCount ?? 1;
+  const amount = tontine.amountPerShare * shares;
+  const penaltyAmount =
+    tontine.penaltyAmount != null && Number.isFinite(tontine.penaltyAmount)
+      ? tontine.penaltyAmount
+      : 0;
+  const totalDue =
+    tontine.totalAmountDue != null && Number.isFinite(tontine.totalAmountDue)
+      ? tontine.totalAmountDue
+      : amount + penaltyAmount;
+  const dueState = resolveTontineDueState(tontine);
+
+  return {
+    scheduledDate,
+    displayScheduledDate: scheduledDate ? formatFrShortFromIso(scheduledDate) : null,
+    daysLeft,
+    dueState,
+    amount,
+    penaltyAmount,
+    totalDue,
+    showAmountBreakdown: dueState === 'DUE',
+  };
+}
+
 /**
  * Dérive l'état d'affichage paiement / échéance pour une ligne tontine (liste / dashboard).
  */
@@ -148,27 +315,10 @@ export function deriveTontinePaymentUiState(
     return unknownState(false);
   }
 
-  const todayTs = startOfLocalDay(now);
-  const rawDate =
-    tontine.nextPaymentDate === undefined
-      ? undefined
-      : tontine.nextPaymentDate === null || tontine.nextPaymentDate === ''
-        ? null
-        : String(tontine.nextPaymentDate).split('T')[0];
+  const payment = resolveTontinePaymentContext(tontine, now);
 
-  const dueTs =
-    rawDate != null && rawDate !== '' ? parseLocalDateOnly(rawDate) : null;
-  const daysLeft =
-    dueTs !== null ? calendarDaysBetween(dueTs, todayTs) : null;
-
-  const hasDue = tontine.hasPaymentDue;
-  const explicitTrue = hasDue === true;
-  const explicitFalse = hasDue === false;
-  const dueUnknown = hasDue === undefined;
-
-  // 2 — hasPaymentDue === true
-  if (explicitTrue) {
-    if (dueTs === null) {
+  if (payment.dueState === 'DUE') {
+    if (payment.scheduledDate === null) {
       return {
         uiStatus: 'UNKNOWN',
         rawPaymentDate: null,
@@ -181,33 +331,39 @@ export function deriveTontinePaymentUiState(
         needsPaymentAttention: true,
       };
     }
-    if (daysLeft! < 0) return overdueState(rawDate!, daysLeft!, true);
-    if (daysLeft === 0) return dueTodayState(rawDate!, true);
-    return dueSoonState(rawDate!, daysLeft!, true);
-  }
-
-  // 3 — hasPaymentDue === false : à jour seulement si signal explicite
-  if (explicitFalse) {
-    const noDate = rawDate === undefined || rawDate === null || rawDate === '';
-    if (noDate) {
-      return upToDateState(null, null, true);
+    if ((payment.daysLeft ?? 0) < 0) {
+      return overdueState(payment.scheduledDate, payment.daysLeft ?? 0, true);
     }
-    // Date présente mais backend dit à jour : si date passée, priorité sécurité → retard
-    if (daysLeft !== null && daysLeft < 0) {
-      return overdueState(rawDate!, daysLeft, true);
-    }
-    return upToDateState(rawDate!, daysLeft, true);
+    if (payment.daysLeft === 0) return dueTodayState(payment.scheduledDate, true);
+    return dueSoonState(payment.scheduledDate, payment.daysLeft ?? 0, true);
   }
 
-  // 4 — hasPaymentDue absent, date présente
-  if (dueUnknown && dueTs !== null && rawDate) {
-    if (daysLeft! < 0) return overdueState(rawDate, daysLeft!, true);
-    if (daysLeft === 0) return dueTodayState(rawDate, true);
-    return dueSoonState(rawDate, daysLeft!, true);
+  if (payment.dueState === 'PROCESSING') {
+    return processingState(payment.scheduledDate, payment.daysLeft, true);
   }
 
-  // 5 — aucune donnée fiable
+  if (payment.dueState === 'SETTLED') {
+    return upToDateState(payment.scheduledDate, payment.daysLeft, true);
+  }
+
+  if (payment.scheduledDate) {
+    return scheduledOnlyState(payment.scheduledDate, payment.daysLeft, true);
+  }
+
   return unknownState(true);
+}
+
+export type TontineListDueDateHeadingKey = 'currentDue' | 'nextDue' | 'none';
+
+/** Libellé carte liste : échéance à payer vs prochaine échéance future */
+export function getTontineListDueDateHeadingKey(
+  tontine: TontineListItem
+): TontineListDueDateHeadingKey {
+  const raw = resolveDisplayPaymentDate(tontine);
+  if (raw == null) return 'none';
+  const ui = deriveTontinePaymentUiState(tontine);
+  if (ui.needsPaymentAttention) return 'currentDue';
+  return 'nextDue';
 }
 
 /** Tontine la plus urgente pour bannière dashboard (parmi items déjà filtrés « officiels »). */
@@ -260,16 +416,10 @@ export function resolveAmountsForListItem(tontine: TontineListItem): {
   penaltyAmount: number;
   totalDue: number;
 } {
-  const shares = tontine.userSharesCount ?? 1;
-  const base = tontine.amountPerShare * shares;
-  const penalty = tontine.penaltyAmount ?? 0;
-  const total =
-    tontine.totalAmountDue != null && Number.isFinite(tontine.totalAmountDue)
-      ? tontine.totalAmountDue
-      : base + penalty;
+  const payment = resolveTontinePaymentContext(tontine);
   return {
-    amount: base,
-    penaltyAmount: penalty,
-    totalDue: total,
+    amount: payment.amount,
+    penaltyAmount: payment.penaltyAmount,
+    totalDue: payment.totalDue,
   };
 }

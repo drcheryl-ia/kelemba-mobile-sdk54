@@ -5,8 +5,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getNextPayment } from '@/api/paymentApi';
-import { parseApiError } from '@/api/errors/errorHandler';
-import { ApiErrorCode } from '@/api/errors/errorCodes';
+import { shouldRetryApiQuery } from '@/api/errors/queryRetry';
 import { selectUserUid } from '@/store/authSlice';
 import type { RootState } from '@/store/store';
 import type { NextPaymentData, UrgencyLevel } from '@/types/payment';
@@ -59,16 +58,12 @@ export function useNextPayment(): UseNextPaymentReturn {
     queryKey: ['nextPayment', userUid],
     queryFn: getNextPayment,
     enabled: userUid !== null,
-    staleTime: 60_000,
+    staleTime: 30_000,
     gcTime: 24 * 60 * 60 * 1000,
     networkMode: 'offlineFirst',
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
-    retry: (failureCount, err: unknown) => {
-      const apiErr = parseApiError(err);
-      if (apiErr.code === ApiErrorCode.KYC_NOT_VERIFIED) return false;
-      return failureCount < 2;
-    },
+    retry: shouldRetryApiQuery,
   });
 
   if (userUid === null) {
@@ -92,7 +87,7 @@ export function useNextPayment(): UseNextPaymentReturn {
       : null;
   const urgencyLevel =
     joursRestants !== null ? deriveUrgencyLevel(joursRestants) : null;
-  const isProcessing = nextPayment?.paymentStatus === 'PROCESSING' ?? false;
+  const isProcessing = nextPayment?.paymentStatus === 'PROCESSING';
   const hasPenalty = (nextPayment?.penaltyAmount ?? 0) > 0;
 
   return {

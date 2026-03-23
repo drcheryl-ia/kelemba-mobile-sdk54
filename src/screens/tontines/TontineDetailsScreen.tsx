@@ -34,13 +34,23 @@ import { useInviteLink } from '@/hooks/useInviteLink';
 import { usePaymentHistory, type PaymentFilter } from '@/hooks/usePaymentHistory';
 import { useTontineReport } from '@/hooks/useTontineReport';
 import { useNextPayment } from '@/hooks/useNextPayment';
+import { useContributionHistory } from '@/hooks/useContributionHistory';
+import { useTontines } from '@/hooks/useTontines';
+import { withNextPaymentPenaltyWaivedForPendingCashValidation } from '@/utils/nextPaymentPenaltyWaive';
+import {
+  resolveCurrentCycleMemberDueDate,
+  resolveDisplayPaymentDate,
+  resolveTontineDueState,
+  resolveTontinePaymentContext,
+} from '@/utils/tontinePaymentState';
 import { initializeCycles, shuffleRotation } from '@/api/tontinesApi';
-import { getCashPendingRequests } from '@/api/cashPaymentApi';
+import { getCycleCompletion } from '@/api/cyclePayoutApi';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { logger } from '@/utils/logger';
 import { formatFcfa, maskPhone } from '@/utils/formatters';
 import { getInitials, hashToColor } from '@/utils/avatarUtils';
 import { resolveCurrentCycleMetrics } from '@/utils/currentCycleMetrics';
+import { canShowOrganizerPayoutCta } from '@/utils/cyclePayoutEligibility';
 import QRCode from 'react-native-qrcode-svg';
 import { ScoreProgressBar } from '@/components/profile/ScoreProgressBar';
 import { ErrorToast } from '@/components/ui/ErrorToast';
@@ -199,6 +209,59 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     enabled: isDraft && isCreator,
   });
   const { nextPayment } = useNextPayment();
+  const { items: cashHistoryForWaive } = useContributionHistory(undefined, {
+    methodFilter: 'CASH',
+    sortField: 'date',
+    sortOrder: 'desc',
+  });
+  const nextPaymentForUi = useMemo(
+    () =>
+      withNextPaymentPenaltyWaivedForPendingCashValidation(
+        nextPayment,
+        cashHistoryForWaive
+      ),
+    [nextPayment, cashHistoryForWaive]
+  );
+  const { tontines: myTontinesList } = useTontines();
+  const listItemForTontine = useMemo(
+    () => myTontinesList.find((t) => t.uid === tontineUid) ?? null,
+    [myTontinesList, tontineUid]
+  );
+
+  const cycleOverviewMemberHint = useMemo(() => {
+    if (!currentCycle?.expectedDate) return null;
+    if (!listItemForTontine) {
+      return {
+        label: t(
+          'tontineDetails.cycleCalendarExpected',
+          'Date prévue du cycle (calendrier)'
+        ),
+        dateStr: currentCycle.expectedDate,
+      };
+    }
+    const dueState = resolveTontineDueState(listItemForTontine);
+    const isDebt = dueState === 'DUE' || dueState === 'PROCESSING';
+    const dateStr = isDebt
+      ? resolveCurrentCycleMemberDueDate(listItemForTontine) ?? currentCycle.expectedDate
+      : resolveDisplayPaymentDate(listItemForTontine) ?? currentCycle.expectedDate;
+    const label = isDebt
+      ? t('tontineDetails.currentCycleDueLabel', 'Échéance du cycle courant')
+      : t('tontineDetails.nextScheduledDueLabel', 'Prochaine échéance');
+    return { label, dateStr };
+  }, [currentCycle, listItemForTontine, t]);
+
+  const memberNextPaymentLine = useMemo(() => {
+    if (!listItemForTontine || !currentCycle) return null;
+    const dueState = resolveTontineDueState(listItemForTontine);
+    const isDebt = dueState === 'DUE' || dueState === 'PROCESSING';
+    const dateStr = isDebt
+      ? resolveCurrentCycleMemberDueDate(listItemForTontine) ?? currentCycle.expectedDate
+      : resolveDisplayPaymentDate(listItemForTontine) ?? currentCycle.expectedDate;
+    const prefix = isDebt
+      ? t('tontineDetails.dueLinePrefix', 'Échéance à régler')
+      : t('tontineDetails.nextDueLinePrefix', 'Prochaine échéance');
+    return { prefix, dateStr };
+  }, [listItemForTontine, currentCycle, t]);
 
   const {
     payments,
@@ -207,18 +270,6 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     fetchNextPage,
     refetch: refetchPayments,
   } = usePaymentHistory(tontineUid, paymentFilter);
-
-  const { data: cashPendingList = [] } = useQuery({
-    queryKey: ['cash-pending', tontineUid],
-    queryFn: () => getCashPendingRequests(tontineUid),
-    enabled: isCreator && tontine?.status === 'ACTIVE',
-    staleTime: 30_000,
-  });
-
-  const cashPendingReviewCount = useMemo(
-    () => cashPendingList.filter((r) => r.status === 'PENDING_REVIEW').length,
-    [cashPendingList]
-  );
 
   const sortedMembers = useMemo(
     () => [...members].sort((a, b) => a.rotationOrder - b.rotationOrder),
@@ -249,8 +300,6 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     if (tontine?.status !== 'ACTIVE') return false;
     if (!currentCycle || currentCycle.status !== 'ACTIVE') return false;
     if (!myMember) return false;
-    // Masquer si bénéficiaire du tour courant
-    if (currentCycle.beneficiaryMembershipUid === myMember.uid) return false;
     // Masquer si cotisation déjà réglée ou en cours de traitement
     if (
       myMember.currentCyclePaymentStatus === 'COMPLETED' ||
@@ -261,24 +310,37 @@ export const TontineDetailsScreen: React.FC<Props> = ({
   }, [tontine?.status, currentCycle, myMember]);
 
   const totalDue = useMemo(() => {
-    if (nextPayment?.tontineUid === tontineUid) return nextPayment.totalDue;
+    if (nextPaymentForUi?.tontineUid === tontineUid) return nextPaymentForUi.totalDue;
+    if (listItemForTontine) {
+      const ctx = resolveTontinePaymentContext(listItemForTontine);
+      if (ctx.dueState === 'DUE') return ctx.totalDue;
+    }
     if (myMember && tontine) return tontine.amountPerShare * myMember.sharesCount;
     return 0;
-  }, [nextPayment, tontineUid, myMember, tontine]);
+  }, [nextPaymentForUi, tontineUid, myMember, tontine, listItemForTontine]);
 
   const { baseAmount, penaltyAmount } = useMemo(() => {
-    if (nextPayment?.tontineUid === tontineUid) {
+    if (nextPaymentForUi?.tontineUid === tontineUid) {
       return {
-        baseAmount: nextPayment.amountDue,
-        penaltyAmount: nextPayment.penaltyAmount ?? 0,
+        baseAmount: nextPaymentForUi.amountDue,
+        penaltyAmount: nextPaymentForUi.penaltyAmount ?? 0,
       };
+    }
+    if (listItemForTontine) {
+      const ctx = resolveTontinePaymentContext(listItemForTontine);
+      if (ctx.dueState === 'DUE') {
+        return {
+          baseAmount: ctx.amount,
+          penaltyAmount: ctx.penaltyAmount,
+        };
+      }
     }
     if (myMember && tontine) {
       const base = tontine.amountPerShare * myMember.sharesCount;
       return { baseAmount: base, penaltyAmount: 0 };
     }
     return { baseAmount: 0, penaltyAmount: 0 };
-  }, [nextPayment, tontineUid, myMember, tontine]);
+  }, [nextPaymentForUi, tontineUid, myMember, tontine, listItemForTontine]);
 
   const handleCotiser = useCallback(() => {
     if (!currentCycle || !tontine || totalDue <= 0) return;
@@ -405,29 +467,6 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     );
   }, [isActivating, tontineUid, tontine?.rules?.rotationType, queryClient, showToast, t, refetchDetails, refetchMembers]);
 
-  const expectedTotal = useMemo(() => {
-    if (!tontine || !currentCycle) return 0;
-
-    // Le bénéficiaire du cycle courant ne cotise pas pour son propre tour
-    // (formule TOTAL_PARTS_MINUS_ONE — défaut backend).
-    // On exclut ses parts du montant attendu.
-    const beneficiaryMembershipUid = currentCycle.beneficiaryMembershipUid;
-
-    const payingShares = members.reduce((sum, m) => {
-      if (beneficiaryMembershipUid && m.uid === beneficiaryMembershipUid) {
-        return sum;
-      }
-      return sum + m.sharesCount;
-    }, 0);
-
-    return tontine.amountPerShare * payingShares;
-  }, [tontine, currentCycle, members]);
-
-  const progressRatio = useMemo(() => {
-    if (!currentCycle || expectedTotal <= 0) return 0;
-    return Math.min(1, currentCycle.totalAmount / expectedTotal);
-  }, [currentCycle, expectedTotal]);
-
   const currentCycleMetrics = useMemo(
     () =>
       resolveCurrentCycleMetrics({
@@ -437,8 +476,39 @@ export const TontineDetailsScreen: React.FC<Props> = ({
       }),
     [currentCycle, tontine?.amountPerShare, members]
   );
-  void expectedTotal;
-  void progressRatio;
+
+  const { data: cycleCompletion } = useQuery({
+    queryKey: ['cycle', 'completion', currentCycle?.uid],
+    queryFn: () => getCycleCompletion(currentCycle!.uid),
+    enabled: Boolean(
+      currentCycle?.uid &&
+        isCreator &&
+        tontine?.status === 'ACTIVE' &&
+        currentCycle?.status === 'ACTIVE'
+    ),
+    staleTime: 30_000,
+  });
+
+  const beneficiaryNameForPayout = useMemo(() => {
+    if (!currentCycle?.beneficiaryMembershipUid) return '—';
+    const m = members.find((x) => x.uid === currentCycle.beneficiaryMembershipUid);
+    return m?.fullName ?? '—';
+  }, [currentCycle, members]);
+
+  const organizerPayoutNetAmount = useMemo(() => {
+    const net = currentCycleMetrics.beneficiaryNetAmount;
+    if (net != null && net > 0) return Math.round(net);
+    if (currentCycleMetrics.expected > 0) return Math.round(currentCycleMetrics.expected);
+    return 0;
+  }, [currentCycleMetrics]);
+
+  const showOrganizerPayoutCta = useMemo(
+    () => canShowOrganizerPayoutCta(isCreator, currentCycle, cycleCompletion),
+    [isCreator, currentCycle, cycleCompletion]
+  );
+
+  const canNavigatePayout =
+    showOrganizerPayoutCta && organizerPayoutNetAmount > 0 && currentCycle != null;
 
   const delayedByMemberIds = currentCycle?.delayedByMemberIds ?? [];
   const reportCycles = report?.cycles ?? [];
@@ -649,11 +719,12 @@ export const TontineDetailsScreen: React.FC<Props> = ({
                     style={[styles.progressFill, { width: `${currentCycleMetrics.progress * 100}%` }]}
                   />
                 </View>
-                {currentCycle.expectedDate && (
+                {cycleOverviewMemberHint ? (
                   <Text style={styles.cycleOverviewHint}>
-                    {t('tontineDetails.nextPaymentLabel', 'Prochain versement')} : {formatDateLong(currentCycle.expectedDate)}
+                    {cycleOverviewMemberHint.label} :{' '}
+                    {formatDateLong(cycleOverviewMemberHint.dateStr)}
                   </Text>
-                )}
+                ) : null}
                 {delayedByMemberIds.length > 0 && (
                   <View style={styles.delayedBanner}>
                     <Ionicons name="warning" size={18} color="#F5A623" />
@@ -667,7 +738,7 @@ export const TontineDetailsScreen: React.FC<Props> = ({
               <View style={styles.metricCardRow}>
                 <View style={styles.metricCard}>
                   <Text style={styles.metricCardLabel}>
-                    {t('tontineDetails.collectedLabel', 'Collecté')}
+                    {t('tontineDetails.collectedGrossLabel', 'Collecté brut')}
                   </Text>
                   <Text style={styles.metricCardValueGreen}>
                     {formatFcfa(currentCycleMetrics.collected)}
@@ -682,14 +753,55 @@ export const TontineDetailsScreen: React.FC<Props> = ({
                   </Text>
                 </View>
               </View>
+              {currentCycleMetrics.beneficiaryNetAmount != null &&
+                currentCycleMetrics.beneficiaryNetAmount > 0 && (
+                  <View style={styles.metricCardRow}>
+                    <View style={styles.metricCard}>
+                      <Text style={styles.metricCardLabel}>
+                        {t(
+                          'tontineDetails.netPayoutLabel',
+                          'Bénéfice net (pot − votre cotisation)'
+                        )}
+                      </Text>
+                      <Text style={styles.metricCardValueGreen}>
+                        {formatFcfa(currentCycleMetrics.beneficiaryNetAmount)}
+                      </Text>
+                    </View>
+                  </View>
+                )}
 
-              {(nextPayment?.tontineUid === tontineUid || totalDue > 0) && (
+              {canNavigatePayout && currentCycle && (
+                <Pressable
+                  style={styles.payoutCta}
+                  onPress={() =>
+                    navigation.navigate('CyclePayoutScreen', {
+                      tontineUid,
+                      tontineName: tontine.name,
+                      cycleUid: currentCycle.uid,
+                      cycleNumber: currentCycle.cycleNumber,
+                      beneficiaryName: beneficiaryNameForPayout,
+                      netAmount: organizerPayoutNetAmount,
+                    })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel="Payer la cagnotte"
+                >
+                  <Text style={styles.payoutCtaText}>PAYER LA CAGNOTTE</Text>
+                </Pressable>
+              )}
+
+              {(nextPaymentForUi?.tontineUid === tontineUid ||
+                totalDue > 0 ||
+                (listItemForTontine != null &&
+                  resolveDisplayPaymentDate(listItemForTontine) != null)) &&
+                memberNextPaymentLine && (
                 <View style={styles.nextPaymentCard}>
                   <Ionicons name="alarm-outline" size={20} color="#92400E" />
                   <Text style={styles.nextPaymentText}>
-                    {'Prochain versement : '}
+                    {memberNextPaymentLine.prefix}
+                    {' : '}
                     <Text style={styles.nextPaymentBold}>
-                      {formatDateLong(currentCycle.expectedDate)} — {formatFcfa(totalDue)}
+                      {formatDateLong(memberNextPaymentLine.dateStr)} — {formatFcfa(totalDue)}
                     </Text>
                   </Text>
                 </View>
@@ -1236,30 +1348,6 @@ export const TontineDetailsScreen: React.FC<Props> = ({
             ))}
             </ScrollView>
           </View>
-          {isCreator && tontine?.status === 'ACTIVE' && (
-            <Pressable
-              style={styles.cashValidationBtn}
-              onPress={() =>
-                (navigation as { navigate: (n: string, p: object) => void }).navigate(
-                  'CashValidationScreen',
-                  { tontineUid, tontineName: tontine.name }
-                )
-              }
-              accessibilityRole="button"
-            >
-              <Ionicons name="cash-outline" size={20} color="#FFFFFF" />
-              <Text style={[styles.cashValidationBtnText, { flex: 1 }]}>
-                Valider paiements espèces
-              </Text>
-              {cashPendingReviewCount > 0 && (
-                <View style={styles.cashValidationBadge}>
-                  <Text style={styles.cashValidationBadgeText}>
-                    {cashPendingReviewCount > 99 ? '99+' : cashPendingReviewCount}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-          )}
           <FlatList
             data={payments}
             keyExtractor={(item) => item.uid}
@@ -1589,38 +1677,6 @@ const styles = StyleSheet.create({
     color: KELEMBA_GREEN,
     fontWeight: '600',
   },
-  cashValidationBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#F5A623',
-    borderRadius: 12,
-    paddingVertical: 14,
-    minHeight: 52,
-    marginBottom: 16,
-    marginHorizontal: 20,
-    paddingHorizontal: 16,
-  },
-  cashValidationBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  cashValidationBadge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#D0021B',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  cashValidationBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
   listContent: {
     padding: 20,
     paddingBottom: 100, // 64 tab height + 20 margin + 16 safe area
@@ -1733,6 +1789,25 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
     color: '#F5A623',
+  },
+  payoutCta: {
+    backgroundColor: '#D0021B',
+    borderRadius: BORDER_RADIUS,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  payoutCtaText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   progressionCard: {
     backgroundColor: '#FFFFFF',

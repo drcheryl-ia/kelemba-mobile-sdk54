@@ -39,7 +39,7 @@ import {
   selectUserPhone,
   selectUserUid,
 } from '@/store/authSlice';
-import { initiateCashPayment } from '@/api/cashPaymentApi';
+import { initiateCashPayment, validateCashPayment } from '@/api/cashPaymentApi';
 import { initiatePayment } from '@/api/paymentApi';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { ApiErrorCode } from '@/api/errors/errorCodes';
@@ -56,7 +56,12 @@ import {
   getTontineCreatorName,
   isTontineCreatorMember,
   resolvePaymentSubmissionMode,
+  shouldAutoApproveCreatorCash,
 } from '@/utils/paymentFlow';
+import { useNextPayment } from '@/hooks/useNextPayment';
+import { useContributionHistory } from '@/hooks/useContributionHistory';
+import { withNextPaymentPenaltyWaivedForPendingCashValidation } from '@/utils/nextPaymentPenaltyWaive';
+import { resolvePaymentScreenAmounts } from '@/utils/paymentScreenAmounts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -169,6 +174,15 @@ function resolveErrorMessage(
         ),
         isFinal: true,
       };
+    case ApiErrorCode.CONFLICT:
+      return {
+        title: t('payment.conflictTitle', 'Action impossible pour le moment'),
+        message: t(
+          'payment.conflictMessage',
+          "L'opération entre en conflit avec l'état actuel du cycle ou un paiement en cours. Réessayez dans un instant."
+        ),
+        isFinal: false,
+      };
     case ApiErrorCode.NETWORK_ERROR:
     case ApiErrorCode.TIMEOUT:
       return {
@@ -177,6 +191,14 @@ function resolveErrorMessage(
           'register.errorNetwork',
           'Vérifiez votre connexion et réessayez.'
         ),
+        isFinal: false,
+      };
+    case ApiErrorCode.VALIDATION_ERROR:
+      return {
+        title: t('payment.validationTitle', 'Montant ou obligation'),
+        message:
+          apiErr.message ||
+          t('payment.validationFallback', 'Vérifiez les montants indiqués par le serveur.'),
         isFinal: false,
       };
     default:
@@ -210,7 +232,47 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
   } = route.params;
   const { members } = useTontineMembers(tontineUid);
 
-  const totalAmount = baseAmount + (penaltyAmount ?? 0);
+  const { nextPayment } = useNextPayment();
+  const { items: cashHistoryForWaive } = useContributionHistory(undefined, {
+    methodFilter: 'CASH',
+    sortField: 'date',
+    sortOrder: 'desc',
+  });
+
+  const nextForObligation = useMemo(() => {
+    if (nextPayment == null) return null;
+    if (nextPayment.cycleUid !== cycleUid || nextPayment.tontineUid !== tontineUid) {
+      return null;
+    }
+    return withNextPaymentPenaltyWaivedForPendingCashValidation(
+      nextPayment,
+      cashHistoryForWaive
+    );
+  }, [nextPayment, cycleUid, tontineUid, cashHistoryForWaive]);
+
+  const paymentAmounts = useMemo(
+    () =>
+      resolvePaymentScreenAmounts(
+        {
+          baseAmount,
+          penaltyAmount: penaltyAmount ?? 0,
+          penaltyDays,
+        },
+        nextForObligation,
+        cycleUid,
+        tontineUid
+      ),
+    [
+      baseAmount,
+      penaltyAmount,
+      penaltyDays,
+      nextForObligation,
+      cycleUid,
+      tontineUid,
+    ]
+  );
+
+  const totalAmount = paymentAmounts.total;
 
   // idempotency-key générée une seule fois pour toute la durée de l'écran
   const idempotencyKey = useRef<string>(generateUUID());
@@ -275,9 +337,30 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
   const invalidatePaymentQueries = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
     queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
+    queryClient.invalidateQueries({ queryKey: ['tontine', tontineUid] });
     queryClient.invalidateQueries({ queryKey: ['nextPayment'] });
     queryClient.invalidateQueries({ queryKey: ['tontines'] });
+    void queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });
   }, [queryClient, tontineUid]);
+
+  const invalidateCashAggregates = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['payments', 'cash', 'organizer'] });
+    void queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });
+    void queryClient.invalidateQueries({ queryKey: ['payments', 'pending'] });
+  }, [queryClient]);
+
+  /** Remplace l’écran courant (modal paiement) — ferme le flux espèces côté pile de navigation */
+  const closeCashFlowAndGo = useCallback(
+    (
+      target: 'PaymentStatusScreen' | 'CashProofScreen',
+      params:
+        | RootStackParamList['PaymentStatusScreen']
+        | RootStackParamList['CashProofScreen']
+    ) => {
+      navigation.replace(target, params);
+    },
+    [navigation]
+  );
 
   // ── Navigation entre étapes ────────────────────────────────────────────────
 
@@ -327,32 +410,46 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
           idempotencyKey: idempotencyKey.current,
           receiverName,
         });
-        invalidatePaymentQueries();
 
         if (submissionMode === 'CASH_CREATOR') {
-          (navigation as unknown as { navigate: (name: string, params: object) => void }).navigate(
-            'PaymentStatusScreen',
-            {
-              paymentUid: result.paymentUid,
-              tontineUid,
-              tontineName,
-              amount: totalAmount,
-              method: 'CASH',
-              initialStatus: 'COMPLETED',
-            }
-          );
-          return;
-        }
+          let creatorCashStatus: RootStackParamList['PaymentStatusScreen']['initialStatus'] =
+            'COMPLETED';
 
-        (navigation as unknown as { navigate: (n: string, p: object) => void }).navigate(
-          'CashProofScreen',
-          {
+          if (shouldAutoApproveCreatorCash(result)) {
+            try {
+              await validateCashPayment(result.paymentUid, 'APPROVE');
+            } catch (validationError: unknown) {
+              const validationApiError = parseApiError(validationError);
+              creatorCashStatus =
+                result.status === 'COMPLETED' ? 'COMPLETED' : result.status;
+              logger.warn('[PaymentScreen] creator cash auto-validation failed', {
+                paymentUid: result.paymentUid,
+                code: validationApiError.code,
+              });
+            }
+          }
+
+          closeCashFlowAndGo('PaymentStatusScreen', {
             paymentUid: result.paymentUid,
             tontineUid,
             tontineName,
             amount: totalAmount,
-          }
-        );
+            method: 'CASH',
+            initialStatus: creatorCashStatus,
+          });
+          invalidatePaymentQueries();
+          invalidateCashAggregates();
+          return;
+        }
+
+        closeCashFlowAndGo('CashProofScreen', {
+          paymentUid: result.paymentUid,
+          tontineUid,
+          tontineName,
+          amount: totalAmount,
+        });
+        invalidatePaymentQueries();
+        invalidateCashAggregates();
         return;
       }
 
@@ -442,6 +539,8 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
     tontineCreatorName,
     queryClient,
     invalidatePaymentQueries,
+    invalidateCashAggregates,
+    closeCashFlowAndGo,
     navigation,
     t,
   ]);
@@ -506,31 +605,46 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
 
             <View style={styles.amountCard}>
               <View style={styles.amountRow}>
-                <Text style={styles.amountLabel}>Cotisation de base</Text>
-                <Text style={styles.amountValue}>{formatFcfa(baseAmount)}</Text>
+                <Text style={styles.amountLabel}>Cotisation restante</Text>
+                <Text style={styles.amountValue}>
+                  {formatFcfa(paymentAmounts.cotisationRestante)}
+                </Text>
               </View>
-              {(penaltyAmount ?? 0) > 0 && (
+              {paymentAmounts.penalty > 0 ? (
                 <View style={styles.amountRow}>
                   <View>
                     <Text style={[styles.amountLabel, styles.penaltyText]}>
-                      Pénalité de retard
+                      Pénalité
                     </Text>
-                    {penaltyDays != null && penaltyDays > 0 && (
+                    {paymentAmounts.daysLate != null && paymentAmounts.daysLate > 0 ? (
                       <Text style={styles.penaltyDays}>
-                        {penaltyDays} jour{penaltyDays > 1 ? 's' : ''} de retard
+                        {paymentAmounts.daysLate} jour
+                        {paymentAmounts.daysLate > 1 ? 's' : ''} de retard
                       </Text>
-                    )}
+                    ) : null}
                   </View>
                   <Text style={[styles.amountValue, styles.penaltyText]}>
-                    + {formatFcfa(penaltyAmount ?? 0)}
+                    + {formatFcfa(paymentAmounts.penalty)}
                   </Text>
                 </View>
-              )}
+              ) : paymentAmounts.showOverdueContext &&
+                paymentAmounts.daysLate != null &&
+                paymentAmounts.daysLate > 0 ? (
+                <Text style={styles.penaltyDays}>
+                  Retard : {paymentAmounts.daysLate} jour
+                  {paymentAmounts.daysLate > 1 ? 's' : ''} (sans pénalité)
+                </Text>
+              ) : null}
               <View style={styles.divider} />
               <View style={styles.amountRow}>
                 <Text style={styles.totalLabel}>Total à payer</Text>
                 <Text style={styles.totalValue}>{formatFcfa(totalAmount)}</Text>
               </View>
+              {paymentAmounts.source === 'next_payment' ? (
+                <Text style={styles.syncHint}>
+                  Montants alignés sur votre échéance (cotisation restante, pénalité, total).
+                </Text>
+              ) : null}
             </View>
 
             <View style={styles.infoBlock}>
@@ -746,16 +860,19 @@ export const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
               {!isCash && paymentPhone && (
                 <SummaryRow label="Numéro" value={maskPhone(paymentPhone)} />
               )}
-              <SummaryRow label="Cotisation de base" value={formatFcfa(baseAmount)} />
-              {(penaltyAmount ?? 0) > 0 && (
+              <SummaryRow
+                label="Cotisation restante"
+                value={formatFcfa(paymentAmounts.cotisationRestante)}
+              />
+              {paymentAmounts.penalty > 0 ? (
                 <SummaryRow
                   label="Pénalité"
-                  value={`+ ${formatFcfa(penaltyAmount ?? 0)}`}
+                  value={`+ ${formatFcfa(paymentAmounts.penalty)}`}
                   valueColor="#D0021B"
                 />
-              )}
+              ) : null}
               <View style={styles.summaryDivider} />
-              <SummaryRow label="Total" value={formatFcfa(totalAmount)} bold />
+              <SummaryRow label="Total à payer" value={formatFcfa(totalAmount)} bold />
             </View>
 
             {/* Bloc informatif selon le mode */}
@@ -1034,6 +1151,12 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     color: '#1A6B3C',
+  },
+  syncHint: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 8,
+    lineHeight: 16,
   },
   // ── Info block ─────────────────────────────────────────────────────────────
   infoBlock: {

@@ -89,6 +89,14 @@ export const PaymentReceiptCard: React.FC<PaymentReceiptCardProps> = ({
             <Text style={styles.value}>{receipt.beneficiaryName}</Text>
           </View>
         )}
+        {receipt.beneficiaryNetAmount != null && receipt.beneficiaryNetAmount > 0 && (
+          <View style={styles.row}>
+            <Text style={styles.label}>
+              {t('payment.receiptBeneficiaryNet', 'Bénéfice net (après votre cotisation)')}
+            </Text>
+            <Text style={styles.value}>{formatFcfa(receipt.beneficiaryNetAmount)}</Text>
+          </View>
+        )}
       </View>
 
       {/* Montants */}

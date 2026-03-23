@@ -37,14 +37,17 @@
     "receiptConfirmed": "Dûngbi a sâra",
     "receiptTontine": "Tontine",
     "receiptCycle": "Cycle",
-    "receiptBeneficiary": "Bénéficiaire",
+    "receiptBeneficiary": "Bénéficiaire na tour",
+    "receiptBeneficiaryNet": "Bénéfice net (kosâra cotisation)",
     "receiptBaseAmount": "Sô na yângâ",
     "receiptPenalty": "Pénalités",
     "receiptTotal": "TOTAL",
     "receiptOperatorRef": "Réf. opérateur",
     "receiptDate": "Date",
     "receiptShare": "Sâra reçu",
-    "receiptDownload": "Zîa"
+    "receiptDownload": "Zîa",
+    "conflictTitle": "Action a yeke kîri sô",
+    "conflictMessage": "Action nî a yeke conflit na cycle wala dûngbi sô. Kôlï biani."
   },
   "auth": {
     "login": "Lîngbi",
@@ -340,9 +343,10 @@
     "nextPaymentLabel": "Dûngbi sô",
     "collectedLabel": "A sâra",
     "expectedLabel": "A yeke sô",
+    "netPayoutLabel": "Bénéfice net (pot - sô na yângâ)",
     "contributionStatusTitle": "STATUT NA COTISATIONS",
     "membersLabel": "membres",
-    "receivesPot": "A yeke zîa pot nî",
+    "receivesPot": "Bénéficiaire na tour",
     "paid": "A sâra",
     "pending": "A yeke gbâ",
     "currentTurn": "Tour sô",
@@ -410,6 +414,8 @@
     "tourLabel": "Tour {{number}}",
     "rotationNumberLine": "Rotation {{n}}",
     "yourTurn": "Sô na yângâ !",
+    "yourTurnContributorHint": "A yeke zîa pot na yângâ sô na kosâra cotisation.",
+    "netPayoutLabel": "Bénéfice net (pot - sô na yângâ)",
     "collected": "a sâra"
   },
   "inviteMembers": {

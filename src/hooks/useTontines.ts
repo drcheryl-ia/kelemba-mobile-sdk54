@@ -5,10 +5,15 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
+import { shouldRetryApiQuery } from '@/api/errors/queryRetry';
 import { getTontines, getReceivedInvitations } from '@/api/tontinesApi';
 import { selectUserUid } from '@/store/authSlice';
 import type { RootState } from '@/store/store';
 import type { TontineListItem } from '@/types/tontine';
+import {
+  resolveUseTontinesOptions,
+  type UseTontinesOptions,
+} from './useTontines.options';
 
 export interface UseTontinesReturn {
   tontines: TontineListItem[];
@@ -20,9 +25,10 @@ export interface UseTontinesReturn {
   refetch: () => void;
 }
 
-export function useTontines(): UseTontinesReturn {
+export function useTontines(options?: UseTontinesOptions): UseTontinesReturn {
   const userUid = useSelector((state: RootState) => selectUserUid(state));
   const enabled = userUid !== null;
+  const resolvedOptions = resolveUseTontinesOptions(options);
 
   const tontinesQuery = useQuery({
     queryKey: ['tontines', userUid],
@@ -31,37 +37,45 @@ export function useTontines(): UseTontinesReturn {
     staleTime: 60_000,
     gcTime: 24 * 60 * 60 * 1000,
     networkMode: 'offlineFirst',
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
-    retry: 2,
+    retry: shouldRetryApiQuery,
   });
 
   const invitationsQuery = useQuery({
     queryKey: ['invitationsReceived', userUid],
     queryFn: getReceivedInvitations,
-    enabled,
+    enabled: enabled && resolvedOptions.includeInvitations,
     staleTime: 30_000,
     gcTime: 24 * 60 * 60 * 1000,
     networkMode: 'offlineFirst',
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
-    retry: 2,
+    retry: shouldRetryApiQuery,
   });
 
   const tontines = tontinesQuery.data ?? [];
   const invitations = invitationsQuery.data ?? [];
 
-  const isLoading = tontinesQuery.isLoading || invitationsQuery.isLoading;
-  const isFetching = tontinesQuery.isFetching || invitationsQuery.isFetching;
-  const isError = tontinesQuery.isError || invitationsQuery.isError;
+  const isLoading =
+    tontinesQuery.isLoading ||
+    (resolvedOptions.includeInvitations && invitationsQuery.isLoading);
+  const isFetching =
+    tontinesQuery.isFetching ||
+    (resolvedOptions.includeInvitations && invitationsQuery.isFetching);
+  const isError =
+    tontinesQuery.isError ||
+    (resolvedOptions.includeInvitations && invitationsQuery.isError);
   const dataUpdatedAt = Math.max(
     tontinesQuery.dataUpdatedAt ?? 0,
-    invitationsQuery.dataUpdatedAt ?? 0
+    resolvedOptions.includeInvitations ? invitationsQuery.dataUpdatedAt ?? 0 : 0
   );
 
   const refetch = () => {
     void tontinesQuery.refetch();
-    void invitationsQuery.refetch();
+    if (resolvedOptions.includeInvitations) {
+      void invitationsQuery.refetch();
+    }
   };
 
   return {

@@ -12,6 +12,7 @@ describe('normalizeCurrentCycle', () => {
       collectedAmount: 0,
       totalExpected: 50000,
       collectionProgress: 0,
+      netPayoutAmount: 40000,
       delayedByMemberUids: ['user-1'],
       status: 'ACTIVE',
       beneficiaryMembershipUid: 'member-8',
@@ -21,6 +22,7 @@ describe('normalizeCurrentCycle', () => {
     expect(cycle.collectedAmount).toBe(0);
     expect(cycle.totalExpected).toBe(50000);
     expect(cycle.collectionProgress).toBe(0);
+    expect(cycle.beneficiaryNetAmount).toBe(40000);
     expect(cycle.delayedByMemberIds).toEqual(['user-1']);
     expect(cycle.beneficiaryMembershipUid).toBe('member-8');
   });
@@ -39,6 +41,7 @@ describe('normalizeCurrentCycle', () => {
     expect(cycle.collectedAmount).toBeUndefined();
     expect(cycle.totalExpected).toBeUndefined();
     expect(cycle.collectionProgress).toBeUndefined();
+    expect(cycle.beneficiaryNetAmount).toBeUndefined();
     expect(cycle.delayedByMemberIds).toBeNull();
   });
 });

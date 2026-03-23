@@ -1,8 +1,10 @@
 /**
- * PaymentReminderBanner — rappel cotisation sur l'accueil.
- * Affiche le prochain versement dû avec accès direct au paiement.
+ * PaymentReminderBanner — pile de rappels paiement sur l'accueil.
+ * Priorité :
+ * 1. Cotisation cash déjà payée mais en attente de validation organisateur
+ * 2. Prochain versement dû
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,16 +17,20 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useNextPayment } from '@/hooks/useNextPayment';
-import { useTontines } from '@/hooks/useTontines';
-import type { NextPaymentData } from '@/types/payment';
+import { useContributionHistory } from '@/hooks/useContributionHistory';
 import { formatFcfa } from '@/utils/formatters';
 import { logger } from '@/utils/logger';
+import { withNextPaymentPenaltyWaivedForPendingCashValidation } from '@/utils/nextPaymentPenaltyWaive';
+import {
+  buildDashboardReminderCards,
+  type DashboardReminderCardVm,
+} from './paymentReminderBanner.helpers';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
+type UrgencyLevel = 'overdue' | 'today' | 'soon' | 'upcoming' | 'pendingValidation';
 
 const MS_PER_DAY = 86_400_000;
 
-/** Jours jusqu'à l'échéance (local) — aligné sur useNextPayment / dueDate YYYY-MM-DD */
 function computeDaysUntilDue(dueDate: string): number {
   const parts = dueDate.split('T')[0].split('-').map(Number);
   if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return 0;
@@ -35,10 +41,7 @@ function computeDaysUntilDue(dueDate: string): number {
   return Math.floor((dueLocal.getTime() - todayStart.getTime()) / MS_PER_DAY);
 }
 
-// ── Seuils d'urgence ─────────────────────────────────────────────
-type UrgencyLevel = 'overdue' | 'today' | 'soon' | 'upcoming';
-
-function getUrgency(daysUntilDue: number): UrgencyLevel {
+function getUrgency(daysUntilDue: number): Exclude<UrgencyLevel, 'pendingValidation'> {
   if (daysUntilDue < 0) return 'overdue';
   if (daysUntilDue === 0) return 'today';
   if (daysUntilDue <= 3) return 'soon';
@@ -47,13 +50,14 @@ function getUrgency(daysUntilDue: number): UrgencyLevel {
 
 const URGENCY_COLORS: Record<
   UrgencyLevel,
-  {
-    bg: string;
-    text: string;
-    icon: string;
-    circle: string;
-  }
+  { bg: string; text: string; icon: string; circle: string }
 > = {
+  pendingValidation: {
+    bg: '#EEF4FF',
+    text: '#1D4ED8',
+    icon: '#FFFFFF',
+    circle: '#0055A5',
+  },
   overdue: {
     bg: '#FFF0EE',
     text: '#7C2D12',
@@ -90,75 +94,177 @@ function getDueLabel(daysUntilDue: number): string {
   return `Dans ${daysUntilDue} jours`;
 }
 
-/** Données construites depuis /tontines/me quand /next-payment renvoie 204 */
-type PaymentReminderFallback = {
-  tontineUid: string;
-  tontineName: string;
-  daysUntilDue: number;
-  amountDue: number;
-  totalDue: number;
-  penaltyAmount: number;
-  dueDate: string;
-};
-
-type PaymentReminderSource = NextPaymentData | PaymentReminderFallback;
-
-function isApiNextPayment(p: PaymentReminderSource): p is NextPaymentData {
-  return 'cycleUid' in p && typeof p.cycleUid === 'string' && p.cycleUid.length > 0;
+function formatDateFr(dateStr: string): string {
+  const parts = dateStr.split('T')[0].split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return dateStr;
+  const [y, m, d] = parts;
+  return new Date(y, m - 1, d).toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
-// ── Composant ─────────────────────────────────────────────────────
-export const PaymentReminderBanner: React.FC = () => {
-  const navigation = useNavigation();
-  const { nextPayment, isLoading } = useNextPayment();
-  const { tontines } = useTontines();
+function formatDateTimeFr(dateStr: string): string {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  return date.toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
-  // ── Fallback tontines quand l'endpoint /next-payment retourne null ──
-  const fallbackPayment = React.useMemo((): PaymentReminderFallback | null => {
-    if (nextPayment) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const WINDOW_DAYS = 7;
+function formatAmountBreakdown(amountDue: number, penaltyAmount: number): string {
+  if (penaltyAmount <= 0) {
+    return `Cotisation : ${formatFcfa(amountDue)}`;
+  }
+  return `Cotisation : ${formatFcfa(amountDue)} + Penalite : ${formatFcfa(penaltyAmount)}`;
+}
 
-    for (const t of tontines) {
-      if (t.status !== 'ACTIVE') continue;
-      const dateStr = t.nextPaymentDate;
-      if (!dateStr) continue;
-      const due = new Date(`${dateStr.split('T')[0]}T00:00:00`);
-      const diff = Math.round(
-        (due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      if (diff <= WINDOW_DAYS) {
-        // Ne pas afficher la bannière si cotisation déjà réglée
-        // currentCyclePaymentStatus est maintenant alimenté par le backend
-        if (t.currentCyclePaymentStatus === 'COMPLETED') continue;
-        return {
-          tontineUid: t.uid,
-          tontineName: t.name,
-          daysUntilDue: diff,
-          amountDue: t.amountPerShare * (t.userSharesCount ?? 1),
-          totalDue: t.amountPerShare * (t.userSharesCount ?? 1),
-          penaltyAmount: 0,
-          dueDate: dateStr.split('T')[0],
-        };
-      }
-    }
-    return null;
-  }, [nextPayment, tontines]);
+function getReminderContent(
+  reminder: DashboardReminderCardVm,
+  nextPaymentAmountDue: number | null,
+  nextPaymentPenaltyAmount: number | null
+): {
+  urgency: UrgencyLevel;
+  iconName: React.ComponentProps<typeof Ionicons>['name'];
+  title: string;
+  subtitle: string;
+  amountLabel: string;
+  detail: string;
+  ctaLabel: string;
+} {
+  if (reminder.kind === 'pendingValidation') {
+    return {
+      urgency: 'pendingValidation',
+      iconName: 'shield-checkmark-outline',
+      title: `Cotisation ${reminder.tontineName} en attente de validation`,
+      subtitle:
+        reminder.status === 'PROCESSING'
+          ? 'Preuve envoyee · validation en cours'
+          : "Paiement en especes declare · validation organisateur en attente",
+      amountLabel: `Montant : ${formatFcfa(reminder.amount)}`,
+      detail: reminder.createdAt
+        ? `Declaree le ${formatDateTimeFr(reminder.createdAt)}`
+        : 'Suivez cette cotisation dans vos paiements.',
+      ctaLabel: 'Voir paiements',
+    };
+  }
 
-  const payment: PaymentReminderSource | null = nextPayment ?? fallbackPayment;
+  const daysUntilDue = reminder.dueDate ? computeDaysUntilDue(reminder.dueDate) : 0;
+  const urgency = getUrgency(daysUntilDue);
+  return {
+    urgency,
+    iconName: 'time-outline',
+    title: `${getDueLabel(daysUntilDue)}${reminder.tontineName ? ` — ${reminder.tontineName}` : ''}`,
+    subtitle: reminder.dueDate
+      ? `Echeance : ${formatDateFr(reminder.dueDate)}`
+      : 'Echeance a confirmer',
+    amountLabel: `Total : ${formatFcfa(reminder.amount)}`,
+    detail: formatAmountBreakdown(nextPaymentAmountDue ?? reminder.amount, nextPaymentPenaltyAmount ?? 0),
+    ctaLabel: 'Cotiser',
+  };
+}
 
-  const daysUntilDue =
-    nextPayment != null
-      ? computeDaysUntilDue(nextPayment.dueDate)
-      : (fallbackPayment?.daysUntilDue ?? 0);
+function ReminderCard({
+  reminder,
+  content,
+  onPress,
+  animatedStyle,
+}: {
+  reminder: DashboardReminderCardVm;
+  content: ReturnType<typeof getReminderContent>;
+  onPress: () => void;
+  animatedStyle?: {
+    opacity: Animated.Value;
+    translateY: Animated.Value;
+    scale: Animated.Value;
+  };
+}) {
+  const colors = URGENCY_COLORS[content.urgency];
+  return (
+    <Animated.View
+      style={[
+        styles.wrapper,
+        { backgroundColor: colors.bg },
+        animatedStyle
+          ? {
+              opacity: animatedStyle.opacity,
+              transform: [
+                { translateY: animatedStyle.translateY },
+                { scale: animatedStyle.scale },
+              ],
+            }
+          : null,
+      ]}
+    >
+      <View style={[styles.iconCircle, { backgroundColor: colors.circle }]}>
+        <Ionicons name={content.iconName} size={18} color={colors.icon} />
+      </View>
 
-  // Animation d'entrée
+      <View style={styles.textBlock}>
+        <Text style={[styles.titleLabel, { color: colors.text }]} numberOfLines={2}>
+          {content.title}
+        </Text>
+        <Text style={styles.dateLabel}>{content.subtitle}</Text>
+        <Text style={[styles.amountLabel, { color: colors.circle }]}>{content.amountLabel}</Text>
+        <Text style={styles.amountBreakdown}>{content.detail}</Text>
+      </View>
+
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`${content.ctaLabel} — ${reminder.tontineName}`}
+        hitSlop={12}
+      >
+        <Text style={[styles.ctaText, { color: colors.text }]}>{content.ctaLabel}</Text>
+        <Ionicons name="chevron-forward" size={15} color={colors.text} />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+export interface PaymentReminderBannerProps {
+  /** Si true, n’affiche pas la première carte (déjà montrée dans la héro). */
+  skipFirst?: boolean;
+}
+
+export const PaymentReminderBanner: React.FC<PaymentReminderBannerProps> = ({
+  skipFirst = false,
+}) => {
+  const navigation = useNavigation<Nav>();
+  const { nextPayment, isLoading: nextPaymentLoading } = useNextPayment();
+  const { items: cashHistoryItems, isFetching: cashHistoryFetching } =
+    useContributionHistory(undefined, {
+      methodFilter: 'CASH',
+      sortField: 'date',
+      sortOrder: 'desc',
+    });
+
+  const nextPaymentForUi = useMemo(
+    () =>
+      withNextPaymentPenaltyWaivedForPendingCashValidation(
+        nextPayment,
+        cashHistoryItems
+      ),
+    [nextPayment, cashHistoryItems]
+  );
+
+  const reminders = useMemo(
+    () => buildDashboardReminderCards(nextPaymentForUi, cashHistoryItems),
+    [cashHistoryItems, nextPaymentForUi]
+  );
+
   const slideAnim = useRef(new Animated.Value(-8)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!payment) return;
+    const vis = skipFirst ? reminders.slice(1) : reminders;
+    if (vis.length === 0) return;
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: 0,
@@ -171,13 +277,13 @@ export const PaymentReminderBanner: React.FC = () => {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [payment, slideAnim, opacityAnim]);
+  }, [reminders.length, opacityAnim, slideAnim, skipFirst]);
 
-  // Pulse sur overdue
-  const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (!payment) return;
-    const urgency = getUrgency(daysUntilDue);
+    const vis = skipFirst ? reminders.slice(1) : reminders;
+    const topReminder = vis[0];
+    if (!topReminder || topReminder.kind !== 'nextPayment' || !topReminder.dueDate) return;
+    const urgency = getUrgency(computeDaysUntilDue(topReminder.dueDate));
     if (urgency !== 'overdue' && urgency !== 'today') return;
     Animated.loop(
       Animated.sequence([
@@ -193,84 +299,71 @@ export const PaymentReminderBanner: React.FC = () => {
         }),
       ])
     ).start();
-  }, [payment, daysUntilDue, pulseAnim]);
+  }, [pulseAnim, reminders, skipFirst]);
 
-  if (isLoading || !payment) return null;
+  const visibleReminders = skipFirst ? reminders.slice(1) : reminders;
 
-  const urgency = getUrgency(daysUntilDue);
-  const colors = URGENCY_COLORS[urgency];
-  const dueLabel = getDueLabel(daysUntilDue);
-  const amount = payment.totalDue ?? payment.amountDue ?? 0;
-
-  const handleCotiser = () => {
-    logger.info('[PaymentReminderBanner] Cotiser pressed', {
-      tontineUid: payment.tontineUid,
-    });
-    const nav = navigation as Nav;
-    if (isApiNextPayment(payment)) {
-      nav.navigate('PaymentScreen', {
-        cycleUid: payment.cycleUid,
-        tontineUid: payment.tontineUid,
-        tontineName: payment.tontineName,
-        baseAmount: payment.amountDue,
-        penaltyAmount: payment.penaltyAmount ?? 0,
-        penaltyDays: (payment.penaltyAmount ?? 0) > 0 ? 1 : 0,
-        cycleNumber: payment.cycleNumber,
-      });
-      return;
-    }
-    nav.navigate('TontineDetails', {
-      tontineUid: payment.tontineUid,
-      isCreator: false,
-    });
-  };
+  if (!nextPaymentLoading && !cashHistoryFetching && visibleReminders.length === 0) {
+    return null;
+  }
 
   return (
-    <Animated.View
-      style={[
-        styles.wrapper,
-        { backgroundColor: colors.bg },
-        {
-          opacity: opacityAnim,
-          transform: [{ translateY: slideAnim }, { scale: pulseAnim }],
-        },
-      ]}
-    >
-      {/* Icône horloge */}
-      <View style={[styles.iconCircle, { backgroundColor: colors.circle }]}>
-        <Ionicons name="time" size={18} color={colors.icon} />
-      </View>
+    <View style={styles.stack}>
+      {visibleReminders.map((reminder, index) => {
+        const content = getReminderContent(
+          reminder,
+          reminder.kind === 'nextPayment' ? nextPaymentForUi?.amountDue ?? null : null,
+          reminder.kind === 'nextPayment' ? nextPaymentForUi?.penaltyAmount ?? null : null
+        );
+        const onPress =
+          reminder.kind === 'pendingValidation'
+            ? () => {
+                logger.info('[PaymentReminderBanner] Pending validation pressed', {
+                  tontineUid: reminder.tontineUid,
+                });
+                navigation.navigate('MainTabs', { screen: 'Payments' });
+              }
+            : () => {
+                if (!reminder.cycleUid) return;
+                logger.info('[PaymentReminderBanner] Cotiser pressed', {
+                  tontineUid: reminder.tontineUid,
+                });
+                navigation.navigate('PaymentScreen', {
+                  cycleUid: reminder.cycleUid,
+                  tontineUid: reminder.tontineUid,
+                  tontineName: reminder.tontineName,
+                  baseAmount: nextPaymentForUi?.amountDue ?? reminder.amount,
+                  penaltyAmount: nextPaymentForUi?.penaltyAmount ?? 0,
+                  cycleNumber: reminder.cycleNumber ?? nextPaymentForUi?.cycleNumber ?? 1,
+                });
+              };
 
-      {/* Texte principal */}
-      <View style={styles.textBlock}>
-        <Text style={[styles.dueLabel, { color: colors.text }]} numberOfLines={1}>
-          {dueLabel}
-          {payment.tontineName ? ` — ${payment.tontineName}` : ''}
-        </Text>
-        {amount > 0 && (
-          <Text style={[styles.amountLabel, { color: colors.circle }]}>
-            {formatFcfa(amount)}
-          </Text>
-        )}
-      </View>
-
-      {/* CTA */}
-      <Pressable
-        onPress={handleCotiser}
-        style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-        accessibilityRole="button"
-        accessibilityLabel={`Cotiser — ${payment.tontineName}`}
-        hitSlop={12}
-      >
-        <Text style={[styles.ctaText, { color: colors.text }]}>Cotiser</Text>
-        <Ionicons name="chevron-forward" size={15} color={colors.text} />
-      </Pressable>
-    </Animated.View>
+        return (
+          <ReminderCard
+            key={reminder.key}
+            reminder={reminder}
+            content={content}
+            onPress={onPress}
+            animatedStyle={
+              index === 0
+                ? {
+                    opacity: opacityAnim,
+                    translateY: slideAnim,
+                    scale: pulseAnim,
+                  }
+                : undefined
+            }
+          />
+        );
+      })}
+    </View>
   );
 };
 
-// ── Styles ────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  stack: {
+    gap: 12,
+  },
   wrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -278,7 +371,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     marginHorizontal: 20,
-    marginBottom: 16,
     gap: 12,
     shadowColor: '#7C2D12',
     shadowOffset: { width: 0, height: 2 },
@@ -298,9 +390,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  dueLabel: {
+  titleLabel: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     lineHeight: 20,
   },
   amountLabel: {
@@ -308,13 +400,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.2,
   },
+  dateLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  amountBreakdown: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 16,
+  },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
     paddingVertical: 4,
     paddingHorizontal: 2,
-    minWidth: 72,
+    minWidth: 84,
     justifyContent: 'flex-end',
   },
   ctaPressed: {

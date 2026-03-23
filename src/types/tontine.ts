@@ -24,9 +24,10 @@ export interface CurrentCycle {
   collectedAmount?: number;
   totalExpected?: number;
   collectionProgress?: number;
+  beneficiaryNetAmount?: number;
   delayedByMemberIds: string[] | null;
   status: CycleStatus;
-  /** Membership uid du bénéficiaire du tour (exclu du montant attendu côté mobile) — GET /cycles/current */
+  /** Membership uid du bénéficiaire du tour — GET /cycles/current */
   beneficiaryMembershipUid?: string | null;
 }
 
@@ -60,6 +61,10 @@ export interface PaymentHistoryItem {
   cycleNumber: number;
   tontineUid: string;
   tontineName: string;
+  /** UUID du membre payeur si fourni par l’API (ex. cotisation espèces). */
+  memberUserUid?: string;
+  /** Indique une validation automatique (ex. cotisation cash organisateur). */
+  cashAutoValidated?: boolean;
 }
 
 export interface TontineDetail {
@@ -137,8 +142,16 @@ export interface TontineListItem {
   membershipStatus: MembershipStatus;
   /** `undefined` = backend n'a pas renvoyé le champ — ne pas traiter comme « à jour » */
   hasPaymentDue?: boolean;
+  /** Échéance du cycle courant à payer (GET liste / membre) — prioritaire si dette */
+  currentDueDate?: string | null;
+  /** Prochaine échéance « logique » backend (hors cycle courant si déjà soldé) */
+  nextDueDate?: string | null;
+  /** Date du prochain cycle planifié (souvent après paiement du courant) */
+  nextScheduledCycleDate?: string | null;
   /** `undefined` = absent ; `null` = explicitement sans date côté API */
   nextPaymentDate?: string | null;
+  /** Date prévue du cycle courant quand l'API n'expose pas nextPaymentDate explicitement */
+  currentCycleExpectedDate?: string | null;
   /** Statut paiement cycle courant si exposé par l'API */
   paymentStatus?: string;
   /** Aligné membre / cycle courant (backend) */
@@ -155,6 +168,8 @@ export interface TontineListItem {
   canInvite?: boolean;
   startDate?: string;
   activeMemberCount?: number;
+  organizerName?: string;
+  invitationMessage?: string;
   /** INVITE = nominative, acceptation directe ; JOIN_REQUEST = via lien/QR, validation organisateur */
   invitationOrigin?: InvitationOrigin;
   /** Flag UI : adhésion non finalisée, carte non cliquable */

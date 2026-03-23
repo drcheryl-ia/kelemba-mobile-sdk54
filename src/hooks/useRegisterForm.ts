@@ -150,7 +150,10 @@ export function useRegisterForm(): UseRegisterFormReturn {
         return { success: true, otpResponse };
       } catch (err: unknown) {
         const apiErr = parseApiError(err);
-        if (apiErr.code === ApiErrorCode.PHONE_ALREADY_USED) {
+        if (
+          apiErr.code === ApiErrorCode.PHONE_ALREADY_USED ||
+          (apiErr.httpStatus === 409 && apiErr.code === ApiErrorCode.CONFLICT)
+        ) {
           const msgObj = ERROR_MESSAGES[ApiErrorCode.PHONE_ALREADY_USED];
           const lang = i18n.language === 'sango' ? 'sango' : 'fr';
           setError(msgObj[lang]);

@@ -1,7 +1,7 @@
 /**
  * CashValidationScreen — l'organisateur valide ou refuse les paiements espèces.
  */
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,10 @@ import {
   type CashPendingItem,
 } from '@/api/cashPaymentApi';
 import { formatFcfa } from '@/utils/formatters';
+import { useSelector } from 'react-redux';
+import { selectUserUid } from '@/store/authSlice';
+import { useTontines } from '@/hooks/useTontines';
+import { getOrganizerTontineUids } from '@/hooks/useOrganizerCashPending';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CashValidationScreen'>;
 
@@ -43,6 +47,26 @@ function formatDate(str: string): string {
 export const CashValidationScreen: React.FC<Props> = ({ navigation, route }) => {
   const { tontineUid, tontineName } = route.params;
   const queryClient = useQueryClient();
+  const currentUserUid = useSelector(selectUserUid);
+  const { tontines, isLoading: tontinesLoading } = useTontines({
+    includeInvitations: false,
+  });
+  const organizerUids = useMemo(
+    () => getOrganizerTontineUids(tontines),
+    [tontines]
+  );
+  const isOrganizerOfThisTontine = organizerUids.has(tontineUid);
+
+  useEffect(() => {
+    if (tontinesLoading) return;
+    if (!isOrganizerOfThisTontine) {
+      Alert.alert(
+        'Accès réservé',
+        'La validation des paiements espèces est réservée aux organisateurs de cette tontine.'
+      );
+      navigation.replace('MainTabs', { screen: 'Payments' });
+    }
+  }, [tontinesLoading, isOrganizerOfThisTontine, navigation]);
 
   const [selectedItem, setSelectedItem] = useState<CashPendingItem | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -54,11 +78,15 @@ export const CashValidationScreen: React.FC<Props> = ({ navigation, route }) => 
     queryKey: ['cash-pending', tontineUid],
     queryFn: () => getCashPendingRequests(tontineUid),
     staleTime: 30_000,
+    enabled: !tontinesLoading && isOrganizerOfThisTontine,
   });
 
   const pendingOnly = useMemo(
-    () => requests.filter((r) => r.status === 'PENDING_REVIEW'),
-    [requests]
+    () =>
+      requests
+        .filter((r) => r.status === 'PENDING_REVIEW')
+        .filter((r) => !currentUserUid || r.member.uid !== currentUserUid),
+    [requests, currentUserUid]
   );
 
   const validateMutation = useMutation({
@@ -73,6 +101,9 @@ export const CashValidationScreen: React.FC<Props> = ({ navigation, route }) => 
     }) => validateCashPayment(paymentUid, action, reason),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['cash-pending', tontineUid] });
+      queryClient.invalidateQueries({ queryKey: ['payments', 'cash', 'organizer'] });
+      queryClient.invalidateQueries({ queryKey: ['payments', 'history'] });
+      queryClient.invalidateQueries({ queryKey: ['payments', 'pending'] });
       queryClient.invalidateQueries({ queryKey: ['cycle', 'current', tontineUid] });
       queryClient.invalidateQueries({ queryKey: ['members', tontineUid] });
       queryClient.invalidateQueries({ queryKey: ['tontines'] });
@@ -204,6 +235,20 @@ export const CashValidationScreen: React.FC<Props> = ({ navigation, route }) => 
     [handleApprove, openPhotoZoom, validateMutation.isPending]
   );
 
+  if (tontinesLoading) {
+    return (
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={s.loadingCenter}>
+          <ActivityIndicator size="large" color="#1A6B3C" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!isOrganizerOfThisTontine) {
+    return null;
+  }
+
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <View style={s.header}>
@@ -231,11 +276,11 @@ export const CashValidationScreen: React.FC<Props> = ({ navigation, route }) => 
         }
         ListEmptyComponent={
           isLoading ? (
-            <View style={s.centered}>
+            <View style={s.listEmptyCenter}>
               <ActivityIndicator size="large" color="#1A6B3C" />
             </View>
           ) : (
-            <View style={s.centered}>
+            <View style={s.listEmptyCenter}>
               <Ionicons name="checkmark-done-circle-outline" size={64} color="#1A6B3C" />
               <Text style={s.emptyText}>Aucun paiement en attente</Text>
               <Text style={s.emptySub}>Tous les paiements espèces ont été traités.</Text>
@@ -312,6 +357,7 @@ export const CashValidationScreen: React.FC<Props> = ({ navigation, route }) => 
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F3F4F6' },
+  loadingCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -416,7 +462,7 @@ const s = StyleSheet.create({
   },
   approveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
   btnDisabled: { opacity: 0.5 },
-  centered: { alignItems: 'center', paddingVertical: 60, gap: 12 },
+  listEmptyCenter: { alignItems: 'center', paddingVertical: 60, gap: 12 },
   emptyText: { fontSize: 16, fontWeight: '600', color: '#1C1C1E' },
   emptySub: { fontSize: 14, color: '#6B7280', textAlign: 'center', paddingHorizontal: 32 },
   modalOverlay: {

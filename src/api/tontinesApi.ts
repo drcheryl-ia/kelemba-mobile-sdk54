@@ -34,6 +34,7 @@ import type {
 import { normalizeRcPhone } from '@/utils/validators';
 import type { TontineRotationResponse } from '@/types/rotation';
 import type { TontineType } from '@/types/savings.types';
+import type { PaymentStatus } from '@/types/domain.types';
 import type {
   TontineContractPreviewResponse,
   AcceptInvitationWithSignaturePayload,
@@ -147,6 +148,19 @@ export const initializeCycles = async (
   }
 };
 
+function parseCyclePaymentStatus(raw: unknown): PaymentStatus | null {
+  if (raw == null || raw === '') return null;
+  const s = String(raw);
+  const allowed: PaymentStatus[] = [
+    'PENDING',
+    'PROCESSING',
+    'COMPLETED',
+    'FAILED',
+    'REFUNDED',
+  ];
+  return allowed.includes(s as PaymentStatus) ? (s as PaymentStatus) : null;
+}
+
 function optionalBoolean(v: unknown): boolean | undefined {
   if (v === true || v === false) return v;
   return undefined;
@@ -187,9 +201,11 @@ export function normalizeCurrentCycle(raw: Record<string, unknown>): CurrentCycl
     actualPayoutDate: optionalStringDate(raw.actualPayoutDate) ?? null,
     totalAmount:
       optionalFiniteNumber(raw.totalAmount ?? raw.totalExpected ?? raw.collectedAmount) ?? 0,
-    collectedAmount: optionalFiniteNumber(raw.collectedAmount),
-    totalExpected: optionalFiniteNumber(raw.totalExpected),
-    collectionProgress: optionalFiniteNumber(raw.collectionProgress),
+    collectedAmount: optionalFiniteNumber(raw.collectedAmount) ?? undefined,
+    totalExpected: optionalFiniteNumber(raw.totalExpected) ?? undefined,
+    collectionProgress: optionalFiniteNumber(raw.collectionProgress) ?? undefined,
+    beneficiaryNetAmount:
+      optionalFiniteNumber(raw.beneficiaryNetAmount ?? raw.netPayoutAmount) ?? undefined,
     delayedByMemberIds:
       optionalStringArray(raw.delayedByMemberIds ?? raw.delayedByMemberUids) ?? null,
     status: (raw.status ?? 'PENDING') as CurrentCycle['status'],
@@ -201,6 +217,9 @@ export function normalizeCurrentCycle(raw: Record<string, unknown>): CurrentCycl
 }
 
 function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem {
+  const cyclePaymentStatus = parseCyclePaymentStatus(
+    raw.currentCyclePaymentStatus ?? raw.paymentStatus ?? raw.memberPaymentStatus
+  );
   // ⚠️ NE PAS confondre : AccountType (global) vs MemberRole (dans une tontine)
   return {
     uid: (raw.tontineUid ?? raw.uid) as string,
@@ -222,30 +241,32 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
     membershipStatus: (
       raw.membershipStatus ?? 'ACTIVE'
     ) as TontineListItem['membershipStatus'],
-    hasPaymentDue: (() => {
-      const explicit = optionalBoolean(raw.hasPaymentDue);
-      if (explicit !== undefined) return explicit;
-      // Dériver depuis currentCycle.expectedDate si le backend
-      // ne retourne pas hasPaymentDue explicitement
-      const cycle = raw.currentCycle as
-        | { expectedDate?: string; status?: string }
-        | null
-        | undefined;
-      if (!cycle?.expectedDate) return undefined;
-      const today = new Date().toISOString().split('T')[0];
-      return cycle.expectedDate.split('T')[0] <= today;
-    })(),
+    // Ne pas inférer hasPaymentDue depuis la seule date d’échéance : un membre (y compris
+    // bénéficiaire du tour) peut avoir une échéance future tout en devant encore cotiser.
+    hasPaymentDue: optionalBoolean(raw.hasPaymentDue),
+    currentCyclePaymentStatus: cyclePaymentStatus,
+    currentDueDate: optionalNextPaymentDate(raw.currentDueDate),
+    nextDueDate: optionalNextPaymentDate(raw.nextDueDate),
+    nextScheduledCycleDate: optionalNextPaymentDate(raw.nextScheduledCycleDate),
     nextPaymentDate: optionalNextPaymentDate(
       raw.nextPaymentDate ??
-        (
-          raw.currentCycle as
-            | { expectedDate?: string }
-            | null
-            | undefined
-        )?.expectedDate
+        raw.memberNextDueDate ??
+        raw.memberPaymentDueDate
+    ),
+    currentCycleExpectedDate: optionalNextPaymentDate(
+      (
+        raw.currentCycle as
+          | { expectedDate?: string }
+          | null
+          | undefined
+      )?.expectedDate
     ),
     paymentStatus:
-      raw.paymentStatus != null ? String(raw.paymentStatus) : undefined,
+      cyclePaymentStatus != null
+        ? cyclePaymentStatus
+        : raw.paymentStatus != null
+          ? String(raw.paymentStatus)
+          : undefined,
     daysLeft: optionalFiniteNumber(raw.daysLeft),
     daysOverdue: optionalFiniteNumber(raw.daysOverdue),
     penaltyAmount: optionalFiniteNumber(raw.penaltyAmount),
@@ -260,6 +281,20 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
     canInvite: Boolean(raw.canInvite),
     startDate: raw.startDate as string | undefined,
     activeMemberCount: (raw.memberCount ?? raw.activeMemberCount) as number | undefined,
+    organizerName:
+      raw.organizerName != null
+        ? String(raw.organizerName)
+        : raw.creatorName != null
+          ? String(raw.creatorName)
+          : raw.inviterName != null
+            ? String(raw.inviterName)
+            : undefined,
+    invitationMessage:
+      raw.invitationMessage != null
+        ? String(raw.invitationMessage)
+        : raw.message != null
+          ? String(raw.message)
+          : undefined,
     invitationOrigin:
       raw.requiresOrganizerApproval === true
         ? ('JOIN_REQUEST' as const)
@@ -465,6 +500,24 @@ function mapReceivedInvitationToListItem(
     membershipStatus: 'PENDING',
     hasPaymentDue: false,
     nextPaymentDate: null,
+    startDate:
+      (raw.startDate ?? tontine.startDate) != null
+        ? String(raw.startDate ?? tontine.startDate)
+        : undefined,
+    organizerName:
+      raw.organizerName != null
+        ? String(raw.organizerName)
+        : raw.creatorName != null
+          ? String(raw.creatorName)
+          : raw.inviterName != null
+            ? String(raw.inviterName)
+            : undefined,
+    invitationMessage:
+      raw.invitationMessage != null
+        ? String(raw.invitationMessage)
+        : raw.message != null
+          ? String(raw.message)
+          : undefined,
     invitationOrigin: 'INVITE',
   };
 }

@@ -10,6 +10,7 @@ export interface CurrentCycleMetrics {
   collected: number;
   expected: number;
   progress: number;
+  beneficiaryNetAmount: number | null;
 }
 
 function clampToPositiveFinite(value: unknown): number | null {
@@ -36,19 +37,31 @@ function resolveLegacyCollectedAmount(
 }
 
 function resolveLegacyExpectedAmount(
-  currentCycle: CurrentCycle,
   members: TontineMember[],
   amountPerShare: number
 ): number {
-  const beneficiaryMembershipUid = currentCycle.beneficiaryMembershipUid;
-  const payingShares = members.reduce((sum, member) => {
-    if (beneficiaryMembershipUid && member.uid === beneficiaryMembershipUid) {
-      return sum;
-    }
-    return sum + member.sharesCount;
-  }, 0);
-
+  const payingShares = members.reduce((sum, member) => sum + member.sharesCount, 0);
   return amountPerShare * payingShares;
+}
+
+function resolveBeneficiaryNetAmount(
+  currentCycle: CurrentCycle,
+  members: TontineMember[],
+  amountPerShare: number,
+  expected: number
+): number | null {
+  const backendValue = clampToPositiveFinite(currentCycle.beneficiaryNetAmount);
+  if (backendValue != null) return backendValue;
+
+  if (expected <= 0 || !currentCycle.beneficiaryMembershipUid) return null;
+
+  const beneficiaryMember = members.find(
+    (member) => member.uid === currentCycle.beneficiaryMembershipUid
+  );
+  if (!beneficiaryMember) return null;
+
+  const beneficiaryContribution = amountPerShare * beneficiaryMember.sharesCount;
+  return Math.max(0, expected - beneficiaryContribution);
 }
 
 export function resolveCurrentCycleMetrics({
@@ -61,6 +74,7 @@ export function resolveCurrentCycleMetrics({
       collected: 0,
       expected: 0,
       progress: 0,
+      beneficiaryNetAmount: null,
     };
   }
 
@@ -70,7 +84,7 @@ export function resolveCurrentCycleMetrics({
 
   const expected =
     clampToPositiveFinite(currentCycle.totalExpected) ??
-    resolveLegacyExpectedAmount(currentCycle, members, amountPerShare);
+    resolveLegacyExpectedAmount(members, amountPerShare);
 
   const backendProgress = clampToPositiveFinite(currentCycle.collectionProgress);
   const progress =
@@ -79,10 +93,17 @@ export function resolveCurrentCycleMetrics({
       : expected > 0
         ? clampProgress(collected / expected)
         : 0;
+  const beneficiaryNetAmount = resolveBeneficiaryNetAmount(
+    currentCycle,
+    members,
+    amountPerShare,
+    expected
+  );
 
   return {
     collected,
     expected,
     progress,
+    beneficiaryNetAmount,
   };
 }

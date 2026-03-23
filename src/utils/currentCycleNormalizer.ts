@@ -31,6 +31,9 @@ export function normalizeCurrentCycle(raw: Record<string, unknown>): CurrentCycl
     collectedAmount: optionalFiniteNumber(raw.collectedAmount),
     totalExpected: optionalFiniteNumber(raw.totalExpected),
     collectionProgress: optionalFiniteNumber(raw.collectionProgress),
+    beneficiaryNetAmount: optionalFiniteNumber(
+      raw.beneficiaryNetAmount ?? raw.netPayoutAmount
+    ),
     delayedByMemberIds:
       optionalStringArray(raw.delayedByMemberIds ?? raw.delayedByMemberUids) ?? null,
     status: (raw.status ?? 'PENDING') as CurrentCycle['status'],

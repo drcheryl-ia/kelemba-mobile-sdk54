@@ -2,6 +2,7 @@ export { ApiError } from './ApiError';
 export { ApiErrorCode } from './errorCodes';
 export { ERROR_MESSAGES } from './errorMessages';
 export { parseApiError } from './errorHandler';
+export { inferCodeFromHttpMessage } from './inferHttpErrorCode';
 import { ApiErrorCode } from './errorCodes';
 import { ERROR_MESSAGES } from './errorMessages';
 

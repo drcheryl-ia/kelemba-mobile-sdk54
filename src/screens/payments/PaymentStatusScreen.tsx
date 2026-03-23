@@ -66,8 +66,8 @@ export const PaymentStatusScreen: React.FC<Props> = ({
   const { paymentUid, tontineUid, tontineName, amount, method, initialStatus } =
     route.params;
 
-  // CASH : statut COMPLETED synchrone — pas de polling
-  const skipPolling = method === 'CASH' || initialStatus === 'COMPLETED';
+  // Cash créateur auto-validé : skip polling seulement si le paiement est déjà finalisé.
+  const skipPolling = initialStatus === 'COMPLETED';
 
   const { status, data, isTimeout, attempts, maxAttempts } = usePaymentPolling(
     paymentUid,

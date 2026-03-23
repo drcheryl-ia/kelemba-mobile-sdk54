@@ -49,7 +49,9 @@ export function usePaymentHistory(
   } = useInfiniteQuery({
     queryKey: ['payments', 'history', userUid, filter],
     queryFn: async ({ pageParam }) => {
-      const res = await getPaymentHistory(pageParam, PAGE_SIZE, statusParam);
+      const res = await getPaymentHistory(pageParam, PAGE_SIZE, statusParam, {
+        sortOrder: 'desc',
+      });
       return res;
     },
     initialPageParam: 1,

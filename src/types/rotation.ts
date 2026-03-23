@@ -29,6 +29,7 @@ export interface RotationCycle {
   actualPayoutDate: string | null;
   collectedAmount: number;
   totalExpected: number;
+  beneficiaryNetAmount?: number;
   status: CycleStatus;
   displayStatus: CycleDisplayStatus;
   collectionProgress: number;
@@ -57,6 +58,7 @@ export interface TontineRotationResponse {
     actualPayoutDate: string | null;
     collectedAmount: number;
     totalExpected: number;
+    beneficiaryNetAmount?: number;
     status: CycleStatus;
     /** Statut d’affichage pré-calculé côté backend (optionnel) */
     displayStatus?: string;

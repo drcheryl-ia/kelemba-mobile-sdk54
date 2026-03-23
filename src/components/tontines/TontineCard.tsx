@@ -1,14 +1,30 @@
 /**
- * Carte tontine — variante standard ou DRAFT avec CTA inviter.
+ * Carte tontine - carte de situation mobile-first.
  */
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { isMembershipPending } from '@/utils/tontineMerge';
-import { GradientBorderCard } from '@/components/common/GradientBorderCard';
-import { deriveTontinePaymentUiState } from '@/utils/tontinePaymentState';
+import {
+  deriveTontinePaymentUiState,
+  getTontineListDueDateHeadingKey,
+  resolveDisplayPaymentDate,
+  resolveTontinePaymentContext,
+} from '@/utils/tontinePaymentState';
 import type { TontineListItem, TontineStatus, TontineFrequency } from '@/types/tontine';
+import {
+  getPersonalStatusKind,
+  getPrimaryActionKind,
+  type TontinePersonalStatusKind,
+  type TontinePrimaryActionKind,
+} from '@/screens/tontines/tontineListViewModel';
+
+const GREEN = '#1A6B3C';
+const ORANGE = '#F5A623';
+const BLUE = '#0055A5';
+const RED = '#D0021B';
+const GRAY = '#6B7280';
 
 const FREQ_KEYS: Record<TontineFrequency, string> = {
   DAILY: 'createTontine.freqDAILY',
@@ -27,21 +43,21 @@ const STATUS_KEYS: Record<TontineStatus, string> = {
 };
 
 const STATUS_COLORS: Record<TontineStatus, string> = {
-  DRAFT: '#9E9E9E',
-  ACTIVE: '#1A6B3C',
-  BETWEEN_ROUNDS: '#F5A623',
-  PAUSED: '#F5A623',
-  COMPLETED: '#0055A5',
-  CANCELLED: '#D0021B',
+  DRAFT: ORANGE,
+  ACTIVE: GREEN,
+  BETWEEN_ROUNDS: BLUE,
+  PAUSED: ORANGE,
+  COMPLETED: GRAY,
+  CANCELLED: RED,
 };
 
-function formatDateShort(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+function formatFcfa(amount: number): string {
+  return `${amount.toLocaleString('fr-FR')} FCFA`;
 }
 
 function formatDateLong(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00');
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString('fr-FR', {
     day: 'numeric',
     month: 'long',
@@ -49,603 +65,541 @@ function formatDateLong(dateStr: string): string {
   });
 }
 
-function urgencyColor(daysLeft: number | null): string {
-  if (daysLeft === null) return '#6B7280';
-  if (daysLeft < 0) return '#D0021B';
-  if (daysLeft <= 2) return '#F5A623';
-  return '#1A6B3C';
+function formatDateShort(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  const date = new Date(`${dateStr.split('T')[0]}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
-function urgencyLabel(daysLeft: number | null): string {
-  if (daysLeft === null) return '';
-  if (daysLeft < 0) return `En retard de ${Math.abs(daysLeft)} jour(s)`;
-  if (daysLeft === 0) return "Dû aujourd'hui";
-  if (daysLeft === 1) return 'Dû demain';
-  return `Dans ${daysLeft} jours`;
+function roleLabel(item: TontineListItem, t: (key: string, fallback: string) => string): string {
+  return item.isCreator === true || item.membershipRole === 'CREATOR'
+    ? t('tontineList.organizer', 'Organisateur')
+    : t('tontineList.memberRole', 'Membre');
 }
 
-function formatFcfa(amount: number): string {
-  return `${amount.toLocaleString('fr-FR')} FCFA`;
+function personalStatusMeta(
+  kind: TontinePersonalStatusKind,
+  item: TontineListItem,
+  t: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+): { label: string; color: string; background: string } {
+  switch (kind) {
+    case 'INVITATION_RECEIVED':
+      return {
+        label: t('tontineList.invitationReceived', 'Invitation reçue'),
+        color: GREEN,
+        background: '#E8F5E9',
+      };
+    case 'VALIDATION_PENDING':
+      return {
+        label: t('tontineList.pendingBadge', 'En attente'),
+        color: GRAY,
+        background: '#F3F4F6',
+      };
+    case 'PAYMENT_DUE':
+      return {
+        label: t('tontineList.personalDue', 'Cotisation attendue'),
+        color: ORANGE,
+        background: '#FFF7E6',
+      };
+    case 'OVERDUE':
+      return {
+        label: t('tontineList.personalOverdue', 'En retard'),
+        color: RED,
+        background: '#FEE2E2',
+      };
+    case 'PROCESSING':
+      return {
+        label: t('tontineList.personalProcessing', 'En traitement'),
+        color: BLUE,
+        background: '#E8F1FF',
+      };
+    case 'UP_TO_DATE':
+      return {
+        label: t('tontineList.personalUpToDate', 'À jour'),
+        color: GREEN,
+        background: '#E8F5E9',
+      };
+    case 'DRAFT':
+      return {
+        label: t('tontineList.statusDraft', 'Brouillon'),
+        color: ORANGE,
+        background: '#FFF7E6',
+      };
+    default:
+      return {
+        label:
+          item.status === 'COMPLETED'
+            ? t('tontineList.personalClosed', 'Terminée')
+            : t('tontineList.personalUnknown', 'Statut indisponible'),
+        color: GRAY,
+        background: '#F3F4F6',
+      };
+  }
+}
+
+function primaryActionLabel(
+  kind: TontinePrimaryActionKind,
+  t: (key: string, fallback: string) => string
+): string {
+  switch (kind) {
+    case 'RESPOND':
+      return t('tontineList.respond', 'Répondre');
+    case 'FINALIZE':
+      return t('common.continue', 'Continuer');
+    case 'MANAGE':
+      return t('tontineList.manage', 'Gérer');
+    case 'PAY':
+      return t('tontineList.payNow', 'Cotiser');
+    case 'NEW_ROTATION':
+      return t('tontineList.newRotationCta', 'Nouvelle rotation');
+    default:
+      return t('tontineList.viewDetails', 'Voir détails');
+  }
+}
+
+function insightText(
+  item: TontineListItem,
+  t: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+): string {
+  if (item.status === 'DRAFT') {
+    return t(
+      'tontineList.draftInsight',
+      'Publiez et complétez cette tontine avant son démarrage.'
+    );
+  }
+
+  if (isMembershipPending(item)) {
+    return item.invitationOrigin === 'INVITE'
+      ? t(
+          'tontineList.pendingSubInvite',
+          'Acceptez cette invitation pour activer la tontine.'
+        )
+      : t(
+          'tontineList.pendingSubJoinRequest',
+          'En attente de validation par l’organisateur.'
+        );
+  }
+
+  if (item.status === 'BETWEEN_ROUNDS') {
+    return t(
+      'tontineList.rotationCompletedLine',
+      'Rotation {{n}} complétée',
+      { n: item.totalCycles }
+    );
+  }
+
+  if (item.status === 'COMPLETED') {
+    return t('tontineList.completedInsight', 'Cette tontine est terminée.');
+  }
+
+  if (item.status === 'CANCELLED') {
+    return t('tontineList.cancelledInsight', 'Cette tontine a été annulée.');
+  }
+
+  if (item.status === 'PAUSED') {
+    return t('tontineList.pausedInsight', 'Cette tontine est temporairement en pause.');
+  }
+
+  const payState = deriveTontinePaymentUiState(item);
+  const paymentContext = resolveTontinePaymentContext(item);
+
+  if (payState.uiStatus === 'OVERDUE') {
+    return t('tontineList.overdueInsight', 'Cotisation attendue depuis {{count}} jour(s).', {
+      count: payState.daysOverdue ?? 0,
+    });
+  }
+
+  if (payState.uiStatus === 'DUE_TODAY') {
+    return t('tontineList.dueTodayInsight', 'Cotisation attendue aujourd’hui.');
+  }
+
+  if (payState.uiStatus === 'DUE_SOON') {
+    return t('tontineList.dueSoonInsight', 'Prochaine cotisation dans {{count}} jour(s).', {
+      count: payState.daysLeft ?? 0,
+    });
+  }
+
+  if (payState.uiStatus === 'UP_TO_DATE' && item.currentCycle != null) {
+    return t('tontineList.turnSummary', 'Tour {{current}} sur {{total}}.', {
+      current: item.currentCycle,
+      total: item.totalCycles,
+    });
+  }
+
+  if (paymentContext.totalDue > 0 && paymentContext.showAmountBreakdown) {
+    return t('tontineList.amountDueSummary', '{{amount}} à verser sur le cycle courant.', {
+      amount: formatFcfa(paymentContext.totalDue),
+    });
+  }
+
+  if (item.activeMemberCount != null && item.currentCycle != null) {
+    return t('tontineList.membersCycleSummary', '{{count}} membres actifs · Tour {{current}}/{{total}}', {
+      count: item.activeMemberCount,
+      current: item.currentCycle,
+      total: item.totalCycles,
+    });
+  }
+
+  if (item.startDate) {
+    return t('tontineList.startsOn', 'Démarre le {{date}}', {
+      date: formatDateLong(item.startDate),
+    });
+  }
+
+  return t('tontineList.genericInsight', 'Consultez les détails de cette tontine.');
 }
 
 export interface TontineCardProps {
   item: TontineListItem;
   onPress: (item: TontineListItem) => void;
-  onInvitePress: (uid: string, name: string) => void;
+  onInvitePress?: (uid: string, name: string) => void;
   PaymentDueBadge?: React.ComponentType;
-  /** Créateur : CTA « Nouvelle rotation » (détail avec panneau d’activation) */
   onNewRotationPress?: (item: TontineListItem) => void;
 }
 
 export const TontineCard: React.FC<TontineCardProps> = ({
   item,
   onPress,
-  onInvitePress,
-  PaymentDueBadge,
   onNewRotationPress,
 }) => {
   const { t } = useTranslation();
-  const isDraft = item.status === 'DRAFT';
-  const statusLabel = t(STATUS_KEYS[item.status]);
-  const statusColor = STATUS_COLORS[item.status];
-  const freqLabel = t(FREQ_KEYS[item.frequency ?? 'MONTHLY']);
-  const payState = deriveTontinePaymentUiState(item);
+  const statusLabel = t(STATUS_KEYS[item.status], STATUS_KEYS[item.status]);
+  const frequencyLabel = t(FREQ_KEYS[item.frequency ?? 'MONTHLY'], item.frequency ?? 'MONTHLY');
+  const cycleLabel =
+    item.currentCycle != null
+      ? t('tontineList.cycleFormat', 'Cycle {{current}} / {{total}}', {
+          current: item.currentCycle,
+          total: item.totalCycles,
+        })
+      : t('tontineList.notStarted', 'Non démarré');
+  const rawDue = resolveDisplayPaymentDate(item);
+  const dueDate = formatDateShort(rawDue ?? undefined);
+  const dueHeadingKey = getTontineListDueDateHeadingKey(item);
+  const personalStatus = personalStatusMeta(getPersonalStatusKind(item), item, t);
+  const actionKind = getPrimaryActionKind(item);
+  const actionLabel = primaryActionLabel(actionKind, t);
+  const creator = item.isCreator === true || item.membershipRole === 'CREATOR';
+  const handlePrimaryAction = () => {
+    if (actionKind === 'NEW_ROTATION' && onNewRotationPress) {
+      onNewRotationPress(item);
+      return;
+    }
+    if (item.status === 'DRAFT' && item.canInvite) {
+      onPress(item);
+      return;
+    }
+    onPress(item);
+  };
 
-  // ── PRIORITÉ 1 : membership PENDING — grisage systématique ──────────
-  const isMembershipPendingState = isMembershipPending(item);
-  if (isMembershipPendingState) {
-    const isJoinRequest = item.invitationOrigin === 'JOIN_REQUEST';
-    const pendingBadgeLabel = t('tontineList.pendingBadge', 'En attente');
-    const pendingSubLabel = isJoinRequest
-      ? t('tontineList.pendingSubJoinRequest', 'En attente de validation par l\'organisateur.')
-      : item.invitationOrigin === 'INVITE'
-        ? t('tontineList.pendingSubInvite', 'Acceptez cette invitation pour rejoindre la tontine.')
-        : t('tontineList.pendingSubGeneric', 'Adhésion non finalisée. Sera activée après validation.');
-
+  // 1. membershipStatus === 'PENDING'
+  if (isMembershipPending(item)) {
     return (
-      <View style={styles.pendingCardWrapper}>
-        <View style={styles.pendingCardContent}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-              <Text style={styles.statusText}>{statusLabel}</Text>
-            </View>
-          </View>
-          <Text style={styles.cardAmount}>
-            {formatFcfa(item.amountPerShare)} / {t('tontineList.part', 'part')}
+      <View style={styles.pendingCard}>
+        <View style={styles.headerRow}>
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.name}
           </Text>
-          <Text style={styles.cardFreq}>{freqLabel}</Text>
-          <Text style={styles.cardCycle}>
-            {item.totalCycles} {t('tontineList.cycles', 'cycles')}
-          </Text>
-        </View>
-        <View style={styles.pendingOverlay}>
-          <View style={styles.pendingBadge}>
-            <Ionicons name="time-outline" size={16} color="#FFFFFF" />
-            <Text style={styles.pendingBadgeText}>{pendingBadgeLabel}</Text>
+          <View style={[styles.statusBadge, styles.pendingBadgeWrap]}>
+            <Text style={styles.statusBadgeText}>{statusLabel}</Text>
           </View>
-          <Text style={styles.pendingSubText}>{pendingSubLabel}</Text>
         </View>
-      </View>
-    );
-  }
 
-  // ── PRIORITÉ 2 : tontine DRAFT (organisateur) ────────────────────────
-  if (isDraft) {
-    const memberCount = item.activeMemberCount ?? 1;
-    const startDateFormatted = item.startDate
-      ? formatDateLong(item.startDate)
-      : t('tontineList.dateUndefined', 'Date non définie');
-    const notStartedBadgeLabel = t('tontineList.notStartedBadge', 'Non démarrée');
-    const notStartedSubLabel = t('tontineList.notStartedSub', 'Cette tontine n\'a pas encore démarré.');
-
-    return (
-      <Pressable
-        style={styles.draftCard}
-        onPress={() => onPress(item)}
-        accessibilityRole="button"
-        accessibilityLabel={item.name}
-      >
-        <View style={styles.draftBadgesRow}>
-          <View style={styles.draftBadge}>
-            <Text style={styles.draftBadgeText}>{statusLabel}</Text>
-          </View>
-          <View style={styles.notStartedBadge}>
-            <Text style={styles.notStartedBadgeText}>{notStartedBadgeLabel}</Text>
-          </View>
-        </View>
-        <Text style={styles.draftCardName} numberOfLines={1}>
-          {item.name}
+        <Text style={styles.primaryAmount}>{formatFcfa(item.amountPerShare)}</Text>
+        <Text style={styles.metaLine}>
+          {frequencyLabel} · {cycleLabel}
         </Text>
-        <Text style={styles.draftCardNotStartedSub}>{notStartedSubLabel}</Text>
-        <Text style={styles.draftCardSub}>
-          {item.startDate
-            ? t('tontineList.startsOn', 'Démarre le {{date}}', { date: startDateFormatted })
-            : startDateFormatted}
+        <Text style={styles.infoRowLabel}>
+          {item.invitationOrigin === 'INVITE'
+            ? t('tontineList.invitationReceived', 'Invitation reçue')
+            : t('tontineList.pendingBadge', 'En attente')}
         </Text>
-        <Text style={styles.draftCardMeta}>
-          {formatFcfa(item.amountPerShare)} · {freqLabel} · {item.totalCycles}{' '}
-          {t('tontineList.cycles', 'cycles')}
-        </Text>
-        <Text style={styles.draftCardMembers}>
-          👥 {t('tontineList.memberCount', '{{count}} membre(s)', { count: memberCount })}
-        </Text>
-        {(item.canInvite ?? item.isCreator ?? false) && (
+        <Text style={styles.pendingText}>{insightText(item, t)}</Text>
+        {item.invitationOrigin === 'INVITE' ? (
           <Pressable
-            style={styles.inviteCtaButton}
-            onPress={() => onInvitePress(item.uid, item.name)}
+            style={styles.primaryButton}
+            onPress={() => onPress(item)}
             accessibilityRole="button"
-            accessibilityLabel={t('tontineList.inviteMembersCta', 'Inviter des membres')}
+            accessibilityLabel={actionLabel}
           >
-            <Ionicons name="mail-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.inviteCtaText}>
-              {t('tontineList.inviteMembersCta', 'Inviter des membres')} →
-            </Text>
-          </Pressable>
-        )}
-      </Pressable>
-    );
-  }
-
-  // ── PRIORITÉ 3 : BETWEEN_ROUNDS (entre deux rotations) ────────────────
-  if (item.status === 'BETWEEN_ROUNDS') {
-    const isOrganizer =
-      item.isCreator ?? item.membershipRole === 'CREATOR';
-    const handleNewRotation = () => {
-      if (onNewRotationPress) onNewRotationPress(item);
-      else onPress(item);
-    };
-
-    const betweenRoundsNode = (
-      <View style={[styles.card, styles.cardActive]}>
-        <Pressable
-          onPress={() => onPress(item)}
-          accessibilityRole="button"
-          accessibilityLabel={item.name}
-        >
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <View
-              style={[
-                styles.statusBadge,
-                { backgroundColor: '#F5A623' },
-              ]}
-            >
-              <Text style={styles.statusText}>
-                {t(
-                  'tontineList.betweenRoundsBadge',
-                  'Rotation terminée'
-                )}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.cardCycle}>
-            {t('tontineList.rotationCompletedLine', 'Rotation {{n}} complétée', {
-              n: item.totalCycles,
-            })}
-          </Text>
-          <Text style={styles.cardAmount}>
-            {formatFcfa(item.amountPerShare)} / {t('tontineList.part', 'part')}
-          </Text>
-          <Text style={styles.cardFreq}>{freqLabel}</Text>
-        </Pressable>
-        {isOrganizer ? (
-          <Pressable
-            style={styles.newRotationBtn}
-            onPress={handleNewRotation}
-            accessibilityRole="button"
-            accessibilityLabel={t(
-              'tontineList.newRotationCta',
-              'Nouvelle rotation'
-            )}
-          >
-            <Text style={styles.newRotationBtnText}>
-              {t('tontineList.newRotationCta', 'Nouvelle rotation')} →
-            </Text>
+            <Text style={styles.primaryButtonText}>{actionLabel}</Text>
           </Pressable>
         ) : null}
       </View>
     );
+  }
 
+  // 2. status === 'DRAFT'
+  if (item.status === 'DRAFT') {
     return (
-      <GradientBorderCard
-        style={styles.cardGradientWrapper}
-        innerStyle={styles.cardGradientInner}
+      <Pressable
+        style={styles.card}
+        onPress={() => onPress(item)}
+        accessibilityRole="button"
+        accessibilityLabel={item.name}
       >
-        {betweenRoundsNode}
-      </GradientBorderCard>
+        <View style={styles.headerRow}>
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS.DRAFT }]}>
+            <Text style={styles.statusBadgeText}>{statusLabel}</Text>
+          </View>
+        </View>
+
+        <View style={styles.amountRow}>
+          <Text style={styles.primaryAmount}>{formatFcfa(item.amountPerShare)}</Text>
+          <Text style={styles.secondaryMeta}>{frequencyLabel}</Text>
+        </View>
+        <Text style={styles.metaLine}>{cycleLabel}</Text>
+        <Text style={styles.infoRowLabel}>{t('tontineList.draftReadyLabel', 'Statut personnel')}</Text>
+        <View style={styles.pillsRow}>
+          <View style={[styles.subBadge, { backgroundColor: personalStatus.background }]}>
+            <Text style={[styles.subBadgeText, { color: personalStatus.color }]}>
+              {t('tontineList.pendingFinalization', 'À finaliser')}
+            </Text>
+          </View>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleBadgeText}>{roleLabel(item, t)}</Text>
+          </View>
+        </View>
+        <Text style={styles.insightText}>{insightText(item, t)}</Text>
+
+        <View style={styles.actionsRow}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={handlePrimaryAction}
+            accessibilityRole="button"
+            accessibilityLabel={actionLabel}
+          >
+            <Text style={styles.primaryButtonText}>{actionLabel}</Text>
+          </Pressable>
+        </View>
+      </Pressable>
     );
   }
 
-  const isActiveConfirmed = item.status === 'ACTIVE';
-  const showPaymentDetails =
-    isActiveConfirmed &&
-    (payState.rawPaymentDate != null ||
-      payState.needsPaymentAttention ||
-      payState.uiStatus === 'UP_TO_DATE');
-
-  const cardNode = (
+  // 3. ACTIVE and other standard states
+  return (
     <Pressable
-      style={[styles.card, isActiveConfirmed && styles.cardActive]}
+      style={styles.card}
       onPress={() => onPress(item)}
       accessibilityRole="button"
       accessibilityLabel={item.name}
     >
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardName} numberOfLines={1}>
+      <View style={styles.headerRow}>
+        <Text style={styles.cardTitle} numberOfLines={1}>
           {item.name}
         </Text>
-        <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-          <Text style={styles.statusText}>{statusLabel}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[item.status] }]}>
+          <Text style={styles.statusBadgeText}>{statusLabel}</Text>
         </View>
       </View>
-      <Text style={styles.cardCycle}>
-        {item.currentCycle != null
-          ? t('tontineList.cycleFormat', 'Cycle {{current}} / {{total}}', {
-              current: item.currentCycle,
-              total: item.totalCycles,
-            })
-          : t('tontineList.notStarted', 'Non démarré')}
-      </Text>
-      <Text style={styles.cardAmount}>
-        {formatFcfa(item.amountPerShare)} / {t('tontineList.part', 'part')}
-      </Text>
-      <Text style={styles.cardFreq}>{freqLabel}</Text>
-      {payState.needsPaymentAttention && PaymentDueBadge && <PaymentDueBadge />}
-      {showPaymentDetails && payState.rawPaymentDate && (() => {
-        const daysLeft = payState.daysLeft;
-        const color = urgencyColor(daysLeft);
-        const label =
-          daysLeft === null
-            ? ''
-            : urgencyLabel(daysLeft);
-        const amountDue =
-          item.totalAmountDue != null && Number.isFinite(item.totalAmountDue)
-            ? item.totalAmountDue - (item.penaltyAmount ?? 0)
-            : item.amountPerShare * (item.userSharesCount ?? 1);
-        const penalty = item.penaltyAmount ?? 0;
 
-        return (
-          <View style={styles.paymentDueBlock}>
-            <View style={styles.paymentDueRow}>
-              <Ionicons name="calendar-outline" size={14} color={color} />
-              <Text style={[styles.paymentDueDate, { color }]}>
-                {formatDateLong(payState.rawPaymentDate)}
-              </Text>
-            </View>
-            {label ? (
-              <View style={styles.paymentDueRow}>
-                <Ionicons name="time-outline" size={14} color={color} />
-                <Text style={[styles.paymentDueCountdown, { color }]}>
-                  {label}
-                </Text>
-              </View>
-            ) : null}
-            <View style={styles.paymentDueRow}>
-              <Ionicons name="wallet-outline" size={14} color="#1C1C1E" />
-              <Text style={styles.paymentDueAmount}>
-                {formatFcfa(amountDue)}
-                {penalty > 0
-                  ? ` + ${formatFcfa(penalty)} ${t('tontineDetails.penalty', 'pénalité')}`
-                  : ''}{' '}
-                {t('tontineList.toPaySuffix', 'à verser')}
-              </Text>
-              {penalty > 0 && (
-                <View style={styles.penaltyPill}>
-                  <Ionicons name="warning-outline" size={11} color="#FFFFFF" />
-                  <Text style={styles.penaltyPillText}>
-                    {t('tontineList.penaltyApplied', 'Pénalité')}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-        );
-      })()}
-      {isActiveConfirmed &&
-        payState.needsPaymentAttention &&
-        !payState.rawPaymentDate && (
-          <View style={[styles.paymentDueBlock, { marginTop: 4 }]}>
-            <Text style={[styles.paymentDueCountdown, { color: '#F5A623' }]}>
-              {t(
-                'tontineList.paymentScheduleUnknown',
-                'Échéance indisponible — ouvrez la fiche tontine pour cotiser.'
-              )}
-            </Text>
-          </View>
-        )}
-      {item.membershipRole === 'CREATOR' && (
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>{t('tontineList.organizer', 'Organisateur')}</Text>
+      <View style={styles.amountRow}>
+        <Text style={styles.primaryAmount}>{formatFcfa(item.amountPerShare)}</Text>
+        <Text style={styles.secondaryMeta}>{frequencyLabel}</Text>
+      </View>
+
+      <Text style={styles.metaLine}>{cycleLabel}</Text>
+
+      <View style={styles.dueRow}>
+        <Ionicons
+          name="calendar-outline"
+          size={16}
+          color={item.status === 'CANCELLED' ? RED : GREEN}
+        />
+        <Text style={styles.dueText}>
+          {dueDate
+            ? dueHeadingKey === 'currentDue'
+              ? t('tontineList.currentDueWithDate', 'Échéance actuelle : {{date}}', {
+                  date: dueDate,
+                })
+              : t('tontineList.nextDueWithDate', 'Prochaine échéance : {{date}}', {
+                  date: dueDate,
+                })
+            : t('tontineList.dateUndefined', 'Date non définie')}
+        </Text>
+      </View>
+
+      <View style={styles.pillsRow}>
+        <View style={[styles.subBadge, { backgroundColor: personalStatus.background }]}>
+          <Text style={[styles.subBadgeText, { color: personalStatus.color }]}>
+            {personalStatus.label}
+          </Text>
         </View>
-      )}
+        <View style={styles.roleBadge}>
+          <Text style={styles.roleBadgeText}>{roleLabel(item, t)}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.insightText}>{insightText(item, t)}</Text>
+
+      <View style={styles.actionsRow}>
+        <Pressable
+          style={styles.primaryButton}
+          onPress={handlePrimaryAction}
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+        >
+          <Text style={styles.primaryButtonText}>{actionLabel}</Text>
+        </Pressable>
+      </View>
     </Pressable>
   );
-
-  if (isActiveConfirmed) {
-    return (
-      <GradientBorderCard
-        style={styles.cardGradientWrapper}
-        innerStyle={styles.cardGradientInner}
-      >
-        {cardNode}
-      </GradientBorderCard>
-    );
-  }
-
-  return cardNode;
 };
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    overflow: 'hidden',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 2,
   },
-  cardActive: {
-    marginBottom: 0,
-    shadowOpacity: 0,
-    elevation: 0,
+  pendingCard: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    opacity: 0.95,
   },
-  cardGradientWrapper: {
-    marginBottom: 12,
-    marginHorizontal: 0,
-  },
-  cardGradientInner: {
-    padding: 0,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  cardHeader: {
+  headerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  cardName: {
+  cardTitle: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1C1C1E',
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  statusText: {
+  pendingBadgeWrap: {
+    backgroundColor: '#9CA3AF',
+  },
+  statusBadgeText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
-  cardCycle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
+  amountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    gap: 12,
+    marginTop: 12,
   },
-  cardAmount: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    marginBottom: 2,
+  primaryAmount: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: GREEN,
   },
-  cardFreq: {
+  secondaryMeta: {
     fontSize: 13,
     color: '#6B7280',
-    marginBottom: 4,
+    fontWeight: '600',
   },
-  paymentDueBlock: {
-    marginTop: 10,
-    padding: 10,
+  metaLine: {
+    marginTop: 4,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  dueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: '#F9FAFB',
-    borderRadius: 10,
-    gap: 5,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderRadius: 12,
   },
-  paymentDueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  paymentDueDate: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  paymentDueCountdown: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  paymentDueAmount: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1C1C1E',
+  dueText: {
     flex: 1,
-  },
-  penaltyPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#D0021B',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  penaltyPillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  roleBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#F5A623',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginTop: 8,
-  },
-  roleText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#1F2937',
   },
-  draftCard: {
-    borderWidth: 1.5,
-    borderColor: '#1A6B3C',
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    marginBottom: 12,
-  },
-  draftBadgesRow: {
+  pillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 4,
+    marginTop: 14,
   },
-  draftBadge: {
-    backgroundColor: '#E8F5EE',
-    borderRadius: 20,
-    paddingVertical: 3,
+  subBadge: {
+    borderRadius: 999,
     paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  draftBadgeText: {
-    color: '#1A6B3C',
+  subBadgeText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  notStartedBadge: {
-    backgroundColor: '#6B7280',
-    borderRadius: 20,
-    paddingVertical: 3,
+  roleBadge: {
+    borderRadius: 999,
     paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#F3F4F6',
   },
-  notStartedBadgeText: {
-    color: '#FFFFFF',
+  roleBadgeText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#4B5563',
   },
-  draftCardNotStartedSub: {
-    fontSize: 13,
+  infoRowLabel: {
+    marginTop: 14,
+    fontSize: 12,
+    fontWeight: '700',
     color: '#6B7280',
-    marginBottom: 6,
-    fontStyle: 'italic',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
-  draftCardName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A1A',
+  insightText: {
     marginTop: 12,
-    marginBottom: 4,
-  },
-  draftCardSub: {
     fontSize: 13,
-    color: '#8E8E93',
-    marginBottom: 4,
+    lineHeight: 19,
+    color: '#374151',
   },
-  draftCardMeta: {
-    fontSize: 12,
-    color: '#8E8E93',
-    marginBottom: 8,
+  pendingText: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#4B5563',
   },
-  draftCardMembers: {
-    fontSize: 12,
-    color: '#8E8E93',
-  },
-  inviteCtaButton: {
-    backgroundColor: '#F5A623',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+  actionsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 12,
-    minHeight: 44,
-  },
-  inviteCtaText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  newRotationBtn: {
-    marginTop: 12,
-    alignSelf: 'stretch',
-    backgroundColor: '#1A6B3C',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newRotationBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  cardPending: {
-    opacity: 0.75,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1.5,
-    borderColor: '#D1D5DB',
-    borderStyle: 'dashed',
-  },
-  pendingCardWrapper: {
-    borderRadius: 16,
-    marginBottom: 12,
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: '#D1D5DB',
-    borderStyle: 'dashed',
-  },
-  pendingCardContent: {
-    backgroundColor: '#F3F4F6',
-    padding: 16,
-    opacity: 0.6,
-  },
-  pendingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(55,65,81,0.72)',
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: 10,
-    paddingHorizontal: 20,
+    marginTop: 16,
   },
-  pendingBadge: {
-    flexDirection: 'row',
+  primaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: GREEN,
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
-  pendingBadgeText: {
-    fontSize: 14,
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
     color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  pendingSubText: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.9)',
-    textAlign: 'center',
-    lineHeight: 18,
   },
 });

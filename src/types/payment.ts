@@ -45,6 +45,7 @@ export interface PaymentReceiptData {
   cycleNumber: number;
   totalCycles: number;
   beneficiaryName: string | null;
+  beneficiaryNetAmount?: number | null;
   baseAmount: number;
   penaltyAmount: number;
   totalAmount: number;
@@ -78,12 +79,30 @@ export interface NextPaymentData {
   cycleNumber: number;
   /** Montant de base de la part (entier FCFA) */
   amountDue: number;
+  /** Alias backend plus explicite du reste de cotisation hors pénalité */
+  amountRemaining?: number;
+  /** Montant de cotisation théorique du cycle avant paiements partiels */
+  baseContributionAmount?: number;
+  /** Déjà encaissé sur cette obligation */
+  amountPaid?: number;
   /** Pénalités accumulées (0 si aucun retard) */
   penaltyAmount: number;
   /** Montant total dû — amountDue + penaltyAmount (calculé backend) */
   totalDue: number;
+  /** Alias backend plus explicite du total dû */
+  totalAmountDue?: number;
   /** Date limite de paiement — ISO 8601 date-only "YYYY-MM-DD" */
   dueDate: string;
+  /** Indique si l'échéance est déjà dépassée */
+  isOverdue?: boolean;
+  /** Jours de retard remontés par le backend */
+  daysLate?: number;
+  /** Statut métier normalisé du backend */
+  obligationStatus?: 'DUE' | 'OVERDUE' | 'PENALIZED';
+  /** UUID du paiement déjà ouvert pour cette obligation, si présent */
+  recordPaymentUid?: string | null;
+  /** Statut exact de la ligne de paiement déjà ouverte, si présent */
+  recordPaymentStatus?: PaymentStatus | null;
   /** Statut du paiement */
   paymentStatus: PaymentStatus;
 }

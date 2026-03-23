@@ -57,6 +57,11 @@ export const ERROR_MESSAGES: Record<ApiErrorCode, ErrorMessage> = {
     sango: 'Numéro nî a tene compte.',
     severity: 'error',
   },
+  [ApiErrorCode.CONFLICT]: {
+    fr: "Cette action entre en conflit avec l'état actuel (opération déjà en cours ou ressource verrouillée). Réessayez.",
+    sango: 'Action nî a yeke conflit na état. Kôlï biani.',
+    severity: 'warning',
+  },
   [ApiErrorCode.KYC_NOT_VERIFIED]: {
     fr: "Vérification d'identité requise avant cette action.",
     sango: 'KYC ayeke ti do tî action nî.',
@@ -127,6 +132,16 @@ export const ERROR_MESSAGES: Record<ApiErrorCode, ErrorMessage> = {
     sango: 'Créateur peko a fa action nî.',
     severity: 'error',
   },
+  [ApiErrorCode.INSUFFICIENT_MEMBERS]: {
+    fr: "Pas assez de membres actifs pour cette action (minimum requis par les règles de la tontine).",
+    sango: 'Membres ayeke tîngbi tî action nî.',
+    severity: 'warning',
+  },
+  [ApiErrorCode.ALREADY_INITIALIZED]: {
+    fr: 'Les cycles ont déjà été initialisés pour cette tontine.',
+    sango: 'Cycles a yeke initialisé na tontine nî.',
+    severity: 'info',
+  },
   [ApiErrorCode.INSUFFICIENT_FUNDS]: {
     fr: 'Solde insuffisant pour effectuer ce paiement.',
     sango: 'Lï âla tîngbi tî paiement nî.',
@@ -176,6 +191,21 @@ export const ERROR_MESSAGES: Record<ApiErrorCode, ErrorMessage> = {
     fr: 'Trop de tentatives. Attendez quelques minutes.',
     sango: 'Tentatives tî nzoni. Yeke ndeke na ndeke.',
     severity: 'warning',
+  },
+  [ApiErrorCode.VALIDATION_ERROR]: {
+    fr: 'Les données envoyées sont invalides. Vérifiez les champs et réessayez.',
+    sango: 'Données âla pîka. Kpékôlï na kôlï biani.',
+    severity: 'error',
+  },
+  [ApiErrorCode.SECURITY_CONFIRMATION_REQUIRED]: {
+    fr: 'Confirmation de sécurité requise avant le versement. Saisissez votre PIN.',
+    sango: 'Confirmation sécurité ayeke ti do na mbongo. Biani PIN.',
+    severity: 'warning',
+  },
+  [ApiErrorCode.SECURITY_CONFIRMATION_INVALID]: {
+    fr: 'La confirmation de sécurité est invalide ou expirée. Réessayez avec votre PIN.',
+    sango: 'Confirmation sécurité âla pîka wala a fini. Kôlï PIN.',
+    severity: 'error',
   },
   [ApiErrorCode.UNKNOWN]: {
     fr: "Une erreur inattendue s'est produite. Réessayez.",

@@ -196,6 +196,11 @@ export const ENDPOINTS = {
       method: 'POST' as const,
       url: `${BASE}/v1/cycles/${cycleUid}/payout`,
     }),
+    /** Step-up JWT — POST /v1/cycles/:cycleUid/payout/step-up-token (PIN) — requis avant PAYOUT */
+    PAYOUT_STEP_UP_TOKEN: (cycleUid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/cycles/${cycleUid}/payout/step-up-token`,
+    }),
   },
 
   // ── PAIEMENTS ─────────────────────────────────────────────
@@ -235,6 +240,16 @@ export const ENDPOINTS = {
       method: 'POST' as const,
       url: `${BASE}/v1/payments/cash/${paymentUid}/validate`,
     }),
+    /** Validations espèces agrégées (organisateur) — GET */
+    CASH_PENDING_ACTIONS: {
+      method: 'GET' as const,
+      url: `${BASE}/v1/payments/cash/pending-actions`,
+    },
+    /** Nombre de validations espèces en attente (organisateur) — GET */
+    CASH_PENDING_COUNT: {
+      method: 'GET' as const,
+      url: `${BASE}/v1/payments/cash/pending-count`,
+    },
   },
 
   // ── NOTIFICATIONS ─────────────────────────────────────────

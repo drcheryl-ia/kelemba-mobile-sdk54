@@ -35,6 +35,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '@/store/store';
 import { DashboardScreen } from '@/screens/main';
 import { useUnreadCountSync } from '@/hooks/useUnreadCountSync';
+import { useOrganizerCashPendingBadgeCount } from '@/hooks/useOrganizerCashPending';
 import { useFcmRegistration } from '@/hooks/useFcmRegistration';
 import { useNotificationHandler } from '@/hooks/useNotificationHandler';
 import { TontineListScreen } from '@/screens/tontines';
@@ -58,6 +59,7 @@ import {
   CashProofScreen,
   CashValidationScreen,
 } from '@/screens/payments';
+import { CyclePayoutScreen } from '@/screens/payouts/CyclePayoutScreen';
 import {
   registerFcmTapHandler,
   handleInitialNotification,
@@ -222,6 +224,7 @@ const TAB_BAR_BOTTOM_OFFSET = 8;
 function MainTabsNavigator() {
   useUnreadCountSync();
   const unreadCount = useSelector((s: RootState) => s.notifications.unreadCount);
+  const cashPendingCount = useOrganizerCashPendingBadgeCount();
   const insets = useSafeAreaInsets();
   const tabBarBottom = Math.max(insets.bottom - TAB_BAR_BOTTOM_OFFSET, 0);
   const colorScheme = useColorScheme();
@@ -235,8 +238,26 @@ function MainTabsNavigator() {
         tabBarActiveTintColor: t.tabBarActive,
         tabBarInactiveTintColor: t.tabBarInactive,
         tabBarBadge:
-          route.name === 'History' && unreadCount > 0 ? unreadCount : undefined,
+          route.name === 'History' && unreadCount > 0
+            ? unreadCount
+            : route.name === 'Payments' && cashPendingCount > 0
+              ? cashPendingCount
+              : undefined,
         tabBarBadgeStyle: { backgroundColor: t.danger },
+        tabBarLabel:
+          route.name === 'Payments' && cashPendingCount > 0
+            ? `Paiements (${cashPendingCount}⏳)`
+            : route.name === 'Dashboard'
+              ? 'Accueil'
+              : route.name === 'Tontines'
+                ? 'Tontines'
+                : route.name === 'Payments'
+                  ? 'Paiements'
+                  : route.name === 'History'
+                    ? 'Notifs'
+                    : route.name === 'Profile'
+                      ? 'Compte'
+                      : route.name,
         tabBarShowLabel: true,
         tabBarShowIcon: true,
         tabBarStyle: {
@@ -293,31 +314,11 @@ function MainTabsNavigator() {
         },
       })}
     >
-      <Tab.Screen
-        name="Dashboard"
-        component={DashboardScreen}
-        options={{ tabBarLabel: 'Accueil' }}
-      />
-      <Tab.Screen
-        name="Tontines"
-        component={TontineListScreen}
-        options={{ tabBarLabel: 'Tontines' }}
-      />
-      <Tab.Screen
-        name="Payments"
-        component={ContributionHistoryScreen}
-        options={{ tabBarLabel: 'Paiements' }}
-      />
-      <Tab.Screen
-        name="History"
-        component={NotificationsScreen}
-        options={{ tabBarLabel: 'Notifs' }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileStack}
-        options={{ tabBarLabel: 'Compte' }}
-      />
+      <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Tontines" component={TontineListScreen} />
+      <Tab.Screen name="Payments" component={ContributionHistoryScreen} />
+      <Tab.Screen name="History" component={NotificationsScreen} />
+      <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
 }
@@ -389,6 +390,11 @@ export const AppNavigator: React.FC = () => {
         <RootStack.Screen name="TontineTypeSelectionScreen" component={TontineTypeSelectionScreen} />
         <RootStack.Screen name="CreateTontine" component={CreateTontineScreen} />
         <RootStack.Screen name="TontineDetails" component={TontineDetailsScreen} />
+        <RootStack.Screen
+          name="CyclePayoutScreen"
+          component={CyclePayoutScreen}
+          options={{ headerShown: false, presentation: 'modal' }}
+        />
         <RootStack.Screen
           name="PaymentReminderScreen"
           component={PaymentReminderScreen}

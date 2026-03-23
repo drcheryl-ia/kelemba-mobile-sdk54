@@ -513,6 +513,622 @@
         ]
       }
     },
+    "/api/v1/payments/initiate": {
+      "post": {
+        "description": "Crée un paiement via Orange Money ou Telecel Money. Idempotence obligatoire via le champ idempotencyKey (UUID v4).",
+        "operationId": "PaymentsController_initiatePayment_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiatePaymentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Paiement initié avec succès"
+          },
+          "400": {
+            "description": "Données invalides ou montant incorrect"
+          },
+          "403": {
+            "description": "KYC non vérifié ou non-membre"
+          },
+          "404": {
+            "description": "Cycle introuvable"
+          },
+          "409": {
+            "description": "Paiement en cours ou cotisation complète"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Initier une cotisation pour un cycle de tontine",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/my-history": {
+      "get": {
+        "description": "Retourne la liste des paiements de l'utilisateur connecté, avec pagination et filtre optionnel par statut.",
+        "operationId": "PaymentsController_getMyHistory_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Numéro de page (commence à 1)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "description": "Nombre d'éléments par page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par statut de paiement",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "PROCESSING",
+                "COMPLETED",
+                "FAILED",
+                "REFUNDED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historique retourné"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Historique paginé de mes paiements",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/dev/simulate-webhook": {
+      "post": {
+        "description": "Désactivé en production. Génère un vrai HMAC-SHA256 côté serveur et déclenche le pipeline webhook complet (score, ledger, notifications, audit).",
+        "operationId": "PaymentsController_simulateWebhook_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulateWebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook simulé et traité."
+          },
+          "403": {
+            "description": "Endpoint désactivé en production."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "[DEV ONLY] Simuler la confirmation webhook Orange Money / Telecel Money",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/{id}/status": {
+      "get": {
+        "description": "Retourne le détail et le statut actuel d'un paiement.",
+        "operationId": "PaymentsController_getPaymentStatus_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "UUID du paiement",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Statut retourné"
+          },
+          "403": {
+            "description": "Non autorisé"
+          },
+          "404": {
+            "description": "Paiement introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Consulter le statut d'un paiement",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/callbacks/orange": {
+      "post": {
+        "description": "Endpoint de callback Orange Money. Vérifie la signature HMAC-SHA256 avant traitement.",
+        "operationId": "PaymentsController_handleOrangeWebhook_v1",
+        "parameters": [
+          {
+            "name": "x-webhook-signature",
+            "required": true,
+            "in": "header",
+            "description": "Signature HMAC-SHA256 du body",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook traité"
+          },
+          "401": {
+            "description": "Signature invalide"
+          }
+        },
+        "summary": "Webhook Orange Money",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/callbacks/telecel": {
+      "post": {
+        "description": "Endpoint de callback Telecel Money. Vérifie la signature HMAC-SHA256 du body avant traitement.",
+        "operationId": "PaymentsController_handleTelecelWebhook_v1",
+        "parameters": [
+          {
+            "name": "x-webhook-signature",
+            "required": true,
+            "in": "header",
+            "description": "Signature HMAC-SHA256 du body",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook traité"
+          },
+          "401": {
+            "description": "Signature invalide"
+          }
+        },
+        "summary": "Webhook Telecel Money",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/v1/payments/cash/initiate": {
+      "post": {
+        "operationId": "CashPaymentController_initiate_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiateCashBodyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Demande créée."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Déclarer un paiement en espèces (preuve + validation créateur)",
+        "tags": [
+          "Payments — Cash"
+        ]
+      }
+    },
+    "/api/v1/payments/cash/upload-receipt": {
+      "post": {
+        "operationId": "CashPaymentController_uploadReceipt_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Uploader la photo du reçu espèces",
+        "tags": [
+          "Payments — Cash"
+        ]
+      }
+    },
+    "/api/v1/payments/cash/pending/{tontineUid}": {
+      "get": {
+        "operationId": "CashPaymentController_getPending_v1",
+        "parameters": [
+          {
+            "name": "tontineUid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Paiements espèces en attente de validation (créateur)",
+        "tags": [
+          "Payments — Cash"
+        ]
+      }
+    },
+    "/api/v1/payments/cash/{paymentUid}/submit-proof": {
+      "patch": {
+        "operationId": "CashPaymentController_submitProof_v1",
+        "parameters": [
+          {
+            "name": "paymentUid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitCashProofBodyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Soumettre / mettre à jour la preuve (reçu + coordonnées)",
+        "tags": [
+          "Payments — Cash"
+        ]
+      }
+    },
+    "/api/v1/payments/cash/{paymentUid}/validate": {
+      "post": {
+        "operationId": "CashPaymentController_validate_v1",
+        "parameters": [
+          {
+            "name": "paymentUid",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateCashBodyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Décision enregistrée."
+          },
+          "403": {
+            "description": "Seul le créateur peut valider."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Approuver ou refuser un paiement espèces (créateur)",
+        "tags": [
+          "Payments — Cash"
+        ]
+      }
+    },
+    "/api/v1/score/me": {
+      "get": {
+        "operationId": "ScoreController_getMe_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Score et historique retournés",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token absent ou invalide"
+          },
+          "404": {
+            "description": "Utilisateur introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Score Kelemba et historique des événements de l'utilisateur connecté",
+        "tags": [
+          "Score"
+        ]
+      }
+    },
+    "/api/v1/notifications/devices": {
+      "post": {
+        "description": "Enregistre le token Firebase Cloud Messaging de l'appareil pour recevoir les push notifications.",
+        "operationId": "NotificationsController_registerDevice_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDeviceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token enregistré"
+          },
+          "400": {
+            "description": "Données invalides"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Enregistrer un token FCM",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/devices/{tokenUid}": {
+      "delete": {
+        "description": "Retire un appareil de la liste des appareils recevant les push.",
+        "operationId": "NotificationsController_unregisterDevice_v1",
+        "parameters": [
+          {
+            "name": "tokenUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du token FCM",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Token supprimé"
+          },
+          "404": {
+            "description": "Token introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Supprimer un token FCM",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/unread-count": {
+      "get": {
+        "description": "Retourne le nombre de notifications non lues pour l'utilisateur connecté.",
+        "operationId": "NotificationsController_getUnreadCount_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Nombre de non-lues"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Nombre de notifications non lues",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{uid}/read": {
+      "patch": {
+        "description": "Marque la notification comme lue. Seul le propriétaire peut effectuer cette action.",
+        "operationId": "NotificationsController_markAsRead_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la notification",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Notification marquée lue"
+          },
+          "400": {
+            "description": "Notification ne vous appartient pas"
+          },
+          "404": {
+            "description": "Notification introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Marquer une notification comme lue",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "description": "Retourne la liste paginée des notifications de l'utilisateur connecté.",
+        "operationId": "NotificationsController_getNotifications_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Numéro de page (commence à 1)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "description": "Nombre d'éléments par page",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des notifications"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Liste des notifications",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
     "/api/v1/tontines/invitation/{uid}/preview": {
       "get": {
         "operationId": "TontinesController_getInvitationPreview_v1",
@@ -595,6 +1211,7 @@
                 "DRAFT",
                 "ACTIVE",
                 "PAUSED",
+                "BETWEEN_ROUNDS",
                 "COMPLETED",
                 "CANCELLED"
               ]
@@ -1541,177 +2158,6 @@
         ]
       }
     },
-    "/api/v1/notifications/devices": {
-      "post": {
-        "description": "Enregistre le token Firebase Cloud Messaging de l'appareil pour recevoir les push notifications.",
-        "operationId": "NotificationsController_registerDevice_v1",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RegisterDeviceDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Token enregistré"
-          },
-          "400": {
-            "description": "Données invalides"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Enregistrer un token FCM",
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/api/v1/notifications/devices/{tokenUid}": {
-      "delete": {
-        "description": "Retire un appareil de la liste des appareils recevant les push.",
-        "operationId": "NotificationsController_unregisterDevice_v1",
-        "parameters": [
-          {
-            "name": "tokenUid",
-            "required": true,
-            "in": "path",
-            "description": "UUID du token FCM",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Token supprimé"
-          },
-          "404": {
-            "description": "Token introuvable"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Supprimer un token FCM",
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/api/v1/notifications/unread-count": {
-      "get": {
-        "description": "Retourne le nombre de notifications non lues pour l'utilisateur connecté.",
-        "operationId": "NotificationsController_getUnreadCount_v1",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Nombre de non-lues"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Nombre de notifications non lues",
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/api/v1/notifications/{uid}/read": {
-      "patch": {
-        "description": "Marque la notification comme lue. Seul le propriétaire peut effectuer cette action.",
-        "operationId": "NotificationsController_markAsRead_v1",
-        "parameters": [
-          {
-            "name": "uid",
-            "required": true,
-            "in": "path",
-            "description": "UUID de la notification",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Notification marquée lue"
-          },
-          "400": {
-            "description": "Notification ne vous appartient pas"
-          },
-          "404": {
-            "description": "Notification introuvable"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Marquer une notification comme lue",
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/api/v1/notifications": {
-      "get": {
-        "description": "Retourne la liste paginée des notifications de l'utilisateur connecté.",
-        "operationId": "NotificationsController_getNotifications_v1",
-        "parameters": [
-          {
-            "name": "page",
-            "required": false,
-            "in": "query",
-            "description": "Numéro de page (commence à 1)",
-            "schema": {
-              "minimum": 1,
-              "default": 1,
-              "type": "number"
-            }
-          },
-          {
-            "name": "pageSize",
-            "required": false,
-            "in": "query",
-            "description": "Nombre d'éléments par page",
-            "schema": {
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20,
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Liste des notifications"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Liste des notifications",
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
     "/api/v1/cycles/initialize/{tontineUid}": {
       "post": {
         "operationId": "CyclesController_initialize_v1",
@@ -1853,6 +2299,83 @@
         ]
       }
     },
+    "/api/v1/cycles/{cycleUid}/payout/step-up-token": {
+      "post": {
+        "operationId": "CyclesController_issuePayoutStepUpToken_v1",
+        "parameters": [
+          {
+            "name": "cycleUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du cycle",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueCyclePayoutStepUpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Jeton JWT + durée"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Jeton court (step-up) après validation PIN — requis pour POST .../payout",
+        "tags": [
+          "Cycles"
+        ]
+      }
+    },
+    "/api/v1/cycles/{cycleUid}/payout-organizer-state": {
+      "get": {
+        "operationId": "CyclesController_getPayoutOrganizerState_v1",
+        "parameters": [
+          {
+            "name": "cycleUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du cycle",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CyclePayoutOrganizerStateDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "État pour le CTA « Payer la cagnotte » (collecte, montants, statut payout)",
+        "tags": [
+          "Cycles"
+        ]
+      }
+    },
     "/api/v1/cycles/{cycleUid}/payout": {
       "post": {
         "operationId": "CyclesController_triggerPayout_v1",
@@ -1867,9 +2390,19 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiateCyclePayoutDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Versement déclenché (COMPLETED ou DELAYED)."
+            "description": "Versement initié ou clôturé (COMPLETED, PAYOUT_IN_PROGRESS ou DELAYED)."
           },
           "403": {
             "description": "Seul le créateur peut déclencher le versement."
@@ -1883,241 +2416,9 @@
             "JWT-auth": []
           }
         ],
-        "summary": "Déclencher le versement d'un cycle",
+        "summary": "Déclencher le versement au bénéficiaire (collecte complète requise)",
         "tags": [
           "Cycles"
-        ]
-      }
-    },
-    "/api/v1/score/me": {
-      "get": {
-        "operationId": "ScoreController_getMe_v1",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Score et historique retournés",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScoreResponseDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Token absent ou invalide"
-          },
-          "404": {
-            "description": "Utilisateur introuvable"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Score Kelemba et historique des événements de l'utilisateur connecté",
-        "tags": [
-          "Score"
-        ]
-      }
-    },
-    "/api/v1/payments/initiate": {
-      "post": {
-        "description": "Crée un paiement via Orange Money ou Telecel Money. Idempotence obligatoire via le champ idempotencyKey (UUID v4).",
-        "operationId": "PaymentsController_initiatePayment_v1",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InitiatePaymentDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Paiement initié avec succès"
-          },
-          "400": {
-            "description": "Données invalides ou montant incorrect"
-          },
-          "403": {
-            "description": "KYC non vérifié ou non-membre"
-          },
-          "404": {
-            "description": "Cycle introuvable"
-          },
-          "409": {
-            "description": "Paiement en cours ou cotisation complète"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Initier une cotisation pour un cycle de tontine",
-        "tags": [
-          "Payments"
-        ]
-      }
-    },
-    "/api/v1/payments/my-history": {
-      "get": {
-        "description": "Retourne la liste des paiements de l'utilisateur connecté, avec pagination et filtre optionnel par statut.",
-        "operationId": "PaymentsController_getMyHistory_v1",
-        "parameters": [
-          {
-            "name": "page",
-            "required": false,
-            "in": "query",
-            "description": "Numéro de page (commence à 1)",
-            "schema": {
-              "minimum": 1,
-              "default": 1,
-              "type": "number"
-            }
-          },
-          {
-            "name": "pageSize",
-            "required": false,
-            "in": "query",
-            "description": "Nombre d'éléments par page",
-            "schema": {
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20,
-              "type": "number"
-            }
-          },
-          {
-            "name": "status",
-            "required": false,
-            "in": "query",
-            "description": "Filtrer par statut de paiement",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "PENDING",
-                "PROCESSING",
-                "COMPLETED",
-                "FAILED",
-                "REFUNDED"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Historique retourné"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Historique paginé de mes paiements",
-        "tags": [
-          "Payments"
-        ]
-      }
-    },
-    "/api/v1/payments/{id}/status": {
-      "get": {
-        "description": "Retourne le détail et le statut actuel d'un paiement.",
-        "operationId": "PaymentsController_getPaymentStatus_v1",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "description": "UUID du paiement",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Statut retourné"
-          },
-          "403": {
-            "description": "Non autorisé"
-          },
-          "404": {
-            "description": "Paiement introuvable"
-          }
-        },
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ],
-        "summary": "Consulter le statut d'un paiement",
-        "tags": [
-          "Payments"
-        ]
-      }
-    },
-    "/api/v1/payments/callbacks/orange": {
-      "post": {
-        "description": "Endpoint de callback Orange Money. Vérifie la signature HMAC-SHA256 avant traitement.",
-        "operationId": "PaymentsController_handleOrangeWebhook_v1",
-        "parameters": [
-          {
-            "name": "x-webhook-signature",
-            "required": true,
-            "in": "header",
-            "description": "Signature HMAC-SHA256 du body",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Webhook traité"
-          },
-          "401": {
-            "description": "Signature invalide"
-          }
-        },
-        "summary": "Webhook Orange Money",
-        "tags": [
-          "Payments"
-        ]
-      }
-    },
-    "/api/v1/payments/callbacks/telecel": {
-      "post": {
-        "description": "Endpoint de callback Telecel Money. Vérifie la signature HMAC-SHA256 du body avant traitement.",
-        "operationId": "PaymentsController_handleTelecelWebhook_v1",
-        "parameters": [
-          {
-            "name": "x-webhook-signature",
-            "required": true,
-            "in": "header",
-            "description": "Signature HMAC-SHA256 du body",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Webhook traité"
-          },
-          "401": {
-            "description": "Signature invalide"
-          }
-        },
-        "summary": "Webhook Telecel Money",
-        "tags": [
-          "Payments"
         ]
       }
     },
@@ -2276,6 +2577,7 @@
               "enum": [
                 "ORANGE_MONEY",
                 "TELECEL_MONEY",
+                "CASH",
                 "SYSTEM"
               ]
             }
@@ -2599,6 +2901,7 @@
                 "DRAFT",
                 "ACTIVE",
                 "PAUSED",
+                "BETWEEN_ROUNDS",
                 "COMPLETED",
                 "CANCELLED"
               ]
@@ -3890,27 +4193,90 @@
             "type": "number",
             "description": "Numéro du cycle"
           },
+          "baseContributionAmount": {
+            "type": "number",
+            "description": "Montant de cotisation de base attendu pour ce cycle (parts × montant par part)",
+            "example": 25000
+          },
+          "amountPaid": {
+            "type": "number",
+            "description": "Déjà encaissé (cotisation, hors paiements SYSTEM)",
+            "example": 10000
+          },
+          "amountRemaining": {
+            "type": "number",
+            "description": "Reste à payer sur la cotisation de base (avant pénalité éventuelle)",
+            "example": 15000
+          },
           "amountDue": {
             "type": "number",
-            "description": "Montant dû (FCFA)",
-            "example": 5000
+            "description": "Alias historique : reste sur la cotisation de base (= amountRemaining)",
+            "example": 15000
           },
           "penaltyAmount": {
             "type": "number",
-            "description": "Pénalité (FCFA)",
-            "example": 0
+            "description": "Pénalité de retard applicable (FCFA). Doit être 0 tant qu’un paiement espèces est en attente de validation organisateur (PENDING/PROCESSING) pour cette obligation — le retard d’échéance n’accumule pas de pénalité dans cet état.",
+            "example": 500
+          },
+          "totalAmountDue": {
+            "type": "number",
+            "description": "Total exigible : reste cotisation + pénalité",
+            "example": 15500
           },
           "totalDue": {
             "type": "number",
-            "description": "Total dû (FCFA)",
-            "example": 5000
+            "description": "Alias historique (= totalAmountDue)",
+            "example": 15500
           },
           "dueDate": {
             "type": "string",
-            "description": "Date d'échéance (YYYY-MM-DD)",
+            "description": "Date d’échéance du cycle (YYYY-MM-DD)",
             "example": "2026-03-15"
           },
-          "paymentStatus": {
+          "currentDueDate": {
+            "type": "string",
+            "description": "Identique à dueDate (source de vérité échéance courante)",
+            "example": "2026-03-15"
+          },
+          "nextDueDate": {
+            "type": "string",
+            "description": "Prochaine échéance pertinente (= échéance du cycle dû courant)",
+            "example": "2026-03-15"
+          },
+          "cycleStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACTIVE",
+              "COMPLETED",
+              "PAYOUT_IN_PROGRESS",
+              "PAYOUT_COMPLETED",
+              "SKIPPED"
+            ],
+            "description": "Statut du cycle dû"
+          },
+          "isOverdue": {
+            "type": "boolean",
+            "description": "Échéance dépassée (fin de journée calendaire)"
+          },
+          "isInGracePeriod": {
+            "type": "boolean",
+            "description": "Dans la période de grâce pénalités (si applicable)"
+          },
+          "daysLate": {
+            "type": "number",
+            "description": "Jours de retard après l’échéance (0 si à temps)"
+          },
+          "obligationStatus": {
+            "type": "string",
+            "enum": [
+              "DUE",
+              "OVERDUE",
+              "PENALIZED"
+            ],
+            "description": "Statut métier normalisé pour le mobile"
+          },
+          "recordPaymentStatus": {
             "type": "string",
             "enum": [
               "PENDING",
@@ -3918,7 +4284,26 @@
               "COMPLETED",
               "FAILED",
               "REFUNDED"
-            ]
+            ],
+            "description": "Statut Prisma d’une ligne de paiement en cours (PENDING/PROCESSING), si présent",
+            "nullable": true
+          },
+          "recordPaymentUid": {
+            "type": "object",
+            "description": "UUID du paiement en cours (cash / mobile money), si présent",
+            "nullable": true
+          },
+          "paymentStatus": {
+            "type": "string",
+            "description": "Alias historique : statut de la ligne de paiement si existante, sinon null",
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "COMPLETED",
+              "FAILED",
+              "REFUNDED"
+            ],
+            "nullable": true
           }
         },
         "required": [
@@ -3926,11 +4311,21 @@
           "tontineName",
           "cycleUid",
           "cycleNumber",
+          "baseContributionAmount",
+          "amountPaid",
+          "amountRemaining",
           "amountDue",
           "penaltyAmount",
+          "totalAmountDue",
           "totalDue",
           "dueDate",
-          "paymentStatus"
+          "currentDueDate",
+          "nextDueDate",
+          "cycleStatus",
+          "isOverdue",
+          "isInGracePeriod",
+          "daysLate",
+          "obligationStatus"
         ]
       },
       "UserLookupResponseDto": {
@@ -4085,6 +4480,338 @@
           "confirmed"
         ]
       },
+      "InitiatePaymentDto": {
+        "type": "object",
+        "properties": {
+          "cycleUid": {
+            "type": "string",
+            "description": "UUID du cycle pour lequel la cotisation est payée",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Montant de la cotisation en FCFA (entier, minimum 500)",
+            "example": 5000
+          },
+          "method": {
+            "type": "string",
+            "description": "Moyen de paiement",
+            "enum": [
+              "ORANGE_MONEY",
+              "TELECEL_MONEY",
+              "CASH"
+            ],
+            "example": "ORANGE_MONEY"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Clé d'idempotence UUID v4 (évite les doubles paiements)",
+            "example": "660e8400-e29b-41d4-a716-446655440001"
+          },
+          "receiverName": {
+            "type": "string",
+            "description": "Espèces : nom du receveur (sinon valeur par défaut côté serveur)",
+            "maxLength": 150
+          },
+          "receiptPhotoUrl": {
+            "type": "string",
+            "description": "Espèces : URL photo reçu (après upload)"
+          },
+          "latitude": {
+            "type": "number",
+            "description": "Espèces : latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Espèces : longitude"
+          }
+        },
+        "required": [
+          "cycleUid",
+          "amount",
+          "method",
+          "idempotencyKey"
+        ]
+      },
+      "SimulateWebhookDto": {
+        "type": "object",
+        "properties": {
+          "paymentUid": {
+            "type": "string",
+            "description": "UUID du paiement à simuler",
+            "example": "770e8400-e29b-41d4-a716-446655440002"
+          },
+          "status": {
+            "type": "string",
+            "description": "Statut simulé de la réponse opérateur",
+            "enum": [
+              "SUCCESS",
+              "FAILED"
+            ]
+          }
+        },
+        "required": [
+          "paymentUid",
+          "status"
+        ]
+      },
+      "InitiateCashBodyDto": {
+        "type": "object",
+        "properties": {
+          "cycleUid": {
+            "type": "string",
+            "description": "UUID du cycle pour lequel la cotisation est payée",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Montant en FCFA (minimum 500)",
+            "example": 5000
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Clé d'idempotence UUID v4",
+            "example": "660e8400-e29b-41d4-a716-446655440001"
+          },
+          "receiverName": {
+            "type": "string",
+            "description": "Nom de la personne ayant reçu les espèces (organisateur ou délégué)",
+            "example": "Marie Koyakombo",
+            "maxLength": 150
+          },
+          "receiptPhotoUrl": {
+            "type": "string",
+            "description": "URL de la photo du reçu (après upload-receipt ou stockage externe)"
+          },
+          "latitude": {
+            "type": "number",
+            "description": "Latitude (optionnel)"
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Longitude (optionnel)"
+          }
+        },
+        "required": [
+          "cycleUid",
+          "amount",
+          "idempotencyKey",
+          "receiverName"
+        ]
+      },
+      "SubmitCashProofBodyDto": {
+        "type": "object",
+        "properties": {
+          "receiptPhotoUrl": {
+            "type": "string",
+            "description": "URL de la photo du reçu"
+          },
+          "receiverName": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "receiptPhotoUrl",
+          "receiverName"
+        ]
+      },
+      "ValidateCashBodyDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "APPROVE",
+              "REJECT"
+            ]
+          },
+          "rejectionReason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "ScoreEventDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UUID de l'événement",
+            "example": "abc12345-e29b-41d4-a716-446655440000"
+          },
+          "delta": {
+            "type": "number",
+            "description": "Variation du score (positif ou négatif)",
+            "example": 20
+          },
+          "reason": {
+            "type": "string",
+            "description": "Raison de l'événement",
+            "enum": [
+              "PAYMENT_ON_TIME",
+              "PAYMENT_EARLY",
+              "PAYMENT_LATE",
+              "PAYMENT_MISSED",
+              "LATE_1_3_DAYS",
+              "LATE_4_7_DAYS",
+              "LATE_OVER_7_DAYS",
+              "CYCLE_COMPLETED",
+              "TONTINE_ABANDONED",
+              "PENALTY_APPLIED",
+              "DISPUTE_LOST",
+              "BONUS_REFERRAL",
+              "ADMIN_ADJUSTMENT",
+              "SAVINGS_CONTRIBUTION_ON_TIME",
+              "SAVINGS_CONTRIBUTION_LATE",
+              "SAVINGS_CONTRIBUTION_MISSED",
+              "SAVINGS_EARLY_EXIT",
+              "SAVINGS_CYCLE_COMPLETED",
+              "PAYOUT_COMPLETED_AS_ORGANIZER"
+            ]
+          },
+          "tontineUid": {
+            "type": "object",
+            "description": "UUID de la tontine concernée",
+            "nullable": true,
+            "example": "ffe00123-e29b-41d4-a716-446655440000"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Date de création (ISO 8601)",
+            "example": "2026-03-09T14:00:00.000Z"
+          }
+        },
+        "required": [
+          "uid",
+          "delta",
+          "reason",
+          "tontineUid",
+          "createdAt"
+        ]
+      },
+      "ScoreStatsDto": {
+        "type": "object",
+        "properties": {
+          "totalEvents": {
+            "type": "number",
+            "description": "Nombre total d'événements",
+            "example": 45
+          },
+          "positiveEvents": {
+            "type": "number",
+            "description": "Nombre d'événements positifs",
+            "example": 38
+          },
+          "negativeEvents": {
+            "type": "number",
+            "description": "Nombre d'événements négatifs",
+            "example": 7
+          },
+          "netDelta": {
+            "type": "number",
+            "description": "Somme de tous les delta",
+            "example": 220
+          }
+        },
+        "required": [
+          "totalEvents",
+          "positiveEvents",
+          "negativeEvents",
+          "netDelta"
+        ]
+      },
+      "ScoreResponseDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "description": "UUID de l'utilisateur",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "currentScore": {
+            "type": "number",
+            "description": "Score Kelemba actuel (0–1000)",
+            "minimum": 0,
+            "maximum": 1000,
+            "example": 720
+          },
+          "scoreLabel": {
+            "type": "string",
+            "description": "Libellé du score",
+            "enum": [
+              "EXCELLENT",
+              "BON",
+              "MOYEN",
+              "FAIBLE",
+              "CRITIQUE"
+            ],
+            "example": "BON"
+          },
+          "history": {
+            "description": "20 derniers événements (du plus récent)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreEventDto"
+            }
+          },
+          "stats": {
+            "description": "Statistiques agrégées",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScoreStatsDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "uid",
+          "currentScore",
+          "scoreLabel",
+          "history",
+          "stats"
+        ]
+      },
+      "RegisterDeviceDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Token FCM ou Expo Push de l'appareil",
+            "example": "dGVzdF90b2tlbl9mb3JfZmlyZWJhc2U..."
+          },
+          "platform": {
+            "type": "string",
+            "description": "Plateforme de l'appareil",
+            "enum": [
+              "ANDROID",
+              "IOS",
+              "WEB"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider du token (FCM par défaut, EXPO pour Expo Push)",
+            "enum": [
+              "FCM",
+              "EXPO"
+            ]
+          }
+        },
+        "required": [
+          "token",
+          "platform"
+        ]
+      },
       "CreateTontineDto": {
         "type": "object",
         "properties": {
@@ -4168,6 +4895,7 @@
               "DRAFT",
               "ACTIVE",
               "PAUSED",
+              "BETWEEN_ROUNDS",
               "COMPLETED",
               "CANCELLED"
             ]
@@ -4717,209 +5445,119 @@
           "sharesCount"
         ]
       },
-      "RegisterDeviceDto": {
+      "IssueCyclePayoutStepUpDto": {
         "type": "object",
         "properties": {
-          "token": {
+          "pin": {
             "type": "string",
-            "description": "Token FCM ou Expo Push de l'appareil",
-            "example": "dGVzdF90b2tlbl9mb3JfZmlyZWJhc2U..."
-          },
-          "platform": {
-            "type": "string",
-            "description": "Plateforme de l'appareil",
-            "enum": [
-              "ANDROID",
-              "IOS",
-              "WEB"
-            ]
-          },
-          "provider": {
-            "type": "string",
-            "description": "Provider du token (FCM par défaut, EXPO pour Expo Push)",
-            "enum": [
-              "FCM",
-              "EXPO"
-            ]
+            "description": "Code PIN à 6 chiffres (même secret que la connexion)",
+            "example": "123456"
           }
         },
         "required": [
-          "token",
-          "platform"
+          "pin"
         ]
       },
-      "ScoreEventDto": {
-        "type": "object",
-        "properties": {
-          "uid": {
-            "type": "string",
-            "description": "UUID de l'événement",
-            "example": "abc12345-e29b-41d4-a716-446655440000"
-          },
-          "delta": {
-            "type": "number",
-            "description": "Variation du score (positif ou négatif)",
-            "example": 20
-          },
-          "reason": {
-            "type": "string",
-            "description": "Raison de l'événement",
-            "enum": [
-              "PAYMENT_ON_TIME",
-              "PAYMENT_EARLY",
-              "PAYMENT_LATE",
-              "PAYMENT_MISSED",
-              "LATE_1_3_DAYS",
-              "LATE_4_7_DAYS",
-              "LATE_OVER_7_DAYS",
-              "CYCLE_COMPLETED",
-              "TONTINE_ABANDONED",
-              "PENALTY_APPLIED",
-              "DISPUTE_LOST",
-              "BONUS_REFERRAL",
-              "ADMIN_ADJUSTMENT",
-              "SAVINGS_CONTRIBUTION_ON_TIME",
-              "SAVINGS_CONTRIBUTION_LATE",
-              "SAVINGS_CONTRIBUTION_MISSED",
-              "SAVINGS_EARLY_EXIT",
-              "SAVINGS_CYCLE_COMPLETED"
-            ]
-          },
-          "tontineUid": {
-            "type": "object",
-            "description": "UUID de la tontine concernée",
-            "nullable": true,
-            "example": "ffe00123-e29b-41d4-a716-446655440000"
-          },
-          "createdAt": {
-            "type": "string",
-            "description": "Date de création (ISO 8601)",
-            "example": "2026-03-09T14:00:00.000Z"
-          }
-        },
-        "required": [
-          "uid",
-          "delta",
-          "reason",
-          "tontineUid",
-          "createdAt"
-        ]
-      },
-      "ScoreStatsDto": {
-        "type": "object",
-        "properties": {
-          "totalEvents": {
-            "type": "number",
-            "description": "Nombre total d'événements",
-            "example": 45
-          },
-          "positiveEvents": {
-            "type": "number",
-            "description": "Nombre d'événements positifs",
-            "example": 38
-          },
-          "negativeEvents": {
-            "type": "number",
-            "description": "Nombre d'événements négatifs",
-            "example": 7
-          },
-          "netDelta": {
-            "type": "number",
-            "description": "Somme de tous les delta",
-            "example": 220
-          }
-        },
-        "required": [
-          "totalEvents",
-          "positiveEvents",
-          "negativeEvents",
-          "netDelta"
-        ]
-      },
-      "ScoreResponseDto": {
-        "type": "object",
-        "properties": {
-          "uid": {
-            "type": "string",
-            "description": "UUID de l'utilisateur",
-            "example": "550e8400-e29b-41d4-a716-446655440000"
-          },
-          "currentScore": {
-            "type": "number",
-            "description": "Score Kelemba actuel (0–1000)",
-            "minimum": 0,
-            "maximum": 1000,
-            "example": 720
-          },
-          "scoreLabel": {
-            "type": "string",
-            "description": "Libellé du score",
-            "enum": [
-              "EXCELLENT",
-              "BON",
-              "MOYEN",
-              "FAIBLE",
-              "CRITIQUE"
-            ],
-            "example": "BON"
-          },
-          "history": {
-            "description": "20 derniers événements (du plus récent)",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ScoreEventDto"
-            }
-          },
-          "stats": {
-            "description": "Statistiques agrégées",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ScoreStatsDto"
-              }
-            ]
-          }
-        },
-        "required": [
-          "uid",
-          "currentScore",
-          "scoreLabel",
-          "history",
-          "stats"
-        ]
-      },
-      "InitiatePaymentDto": {
+      "CyclePayoutOrganizerStateDto": {
         "type": "object",
         "properties": {
           "cycleUid": {
-            "type": "string",
-            "description": "UUID du cycle pour lequel la cotisation est payée",
-            "example": "550e8400-e29b-41d4-a716-446655440000"
+            "type": "string"
           },
-          "amount": {
+          "isCollectionComplete": {
+            "type": "boolean"
+          },
+          "completionPercent": {
             "type": "number",
-            "description": "Montant de la cotisation en FCFA (entier, minimum 500)",
-            "example": 5000
+            "description": "Pourcentage basé sur les cotisations de base vs attendu"
           },
-          "method": {
-            "type": "string",
-            "description": "Moyen de paiement",
-            "enum": [
-              "ORANGE_MONEY",
-              "TELECEL_MONEY"
-            ],
-            "example": "ORANGE_MONEY"
+          "canOrganizerTriggerPayout": {
+            "type": "boolean",
+            "description": "true si l’utilisateur connecté est créateur, collecte 100 %, cycle payable, pas de payout déjà finalisé"
           },
-          "idempotencyKey": {
+          "beneficiaryPayoutStatus": {
             "type": "string",
-            "description": "Clé d'idempotence UUID v4 (évite les doubles paiements)",
-            "example": "660e8400-e29b-41d4-a716-446655440001"
+            "description": "Statut du dernier versement bénéficiaire (outbox) ou NONE",
+            "example": "PENDING"
+          },
+          "payoutOutboxUid": {
+            "type": "string",
+            "description": "UUID du dernier payout outbox"
+          },
+          "providerReference": {
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "object"
+          },
+          "netPayoutAmount": {
+            "type": "number",
+            "description": "Montant net à virer (FCFA)"
+          },
+          "grossCollectedAmount": {
+            "type": "number",
+            "description": "Brut cagnotte (base + pénalités)"
+          },
+          "nextDueDate": {
+            "type": "object",
+            "description": "Prochaine échéance (cycle suivant même rotation si existant)"
+          },
+          "nextBeneficiaryUserUid": {
+            "type": "object",
+            "description": "UID du prochain bénéficiaire (cycle suivant)"
           }
         },
         "required": [
           "cycleUid",
-          "amount",
-          "method",
-          "idempotencyKey"
+          "isCollectionComplete",
+          "completionPercent",
+          "canOrganizerTriggerPayout",
+          "netPayoutAmount",
+          "grossCollectedAmount"
+        ]
+      },
+      "InitiateCyclePayoutDto": {
+        "type": "object",
+        "properties": {
+          "paymentMethod": {
+            "type": "string",
+            "enum": [
+              "ORANGE_MONEY",
+              "TELECEL_MONEY",
+              "CASH"
+            ],
+            "description": "Canal de versement au bénéficiaire"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Clé d’idempotence (UUID v4), identique pour rejouer la même réponse"
+          },
+          "securityConfirmationToken": {
+            "type": "string",
+            "description": "Jeton JWT émis par POST /cycles/:cycleUid/payout/step-up-token après validation PIN (usage unique)"
+          },
+          "receiverPhone": {
+            "type": "string",
+            "description": "Téléphone mobile money du bénéficiaire (sinon numéro du profil)"
+          },
+          "receiverName": {
+            "type": "string",
+            "description": "Référence / nom pour preuve (ex. espèces)"
+          },
+          "cashConfirmed": {
+            "type": "boolean",
+            "description": "Obligatoire à true pour un versement CASH — confirmation explicite par l’organisateur"
+          },
+          "cashReceiptFileId": {
+            "type": "string",
+            "description": "UUID du fichier preuve (upload) si CASH_PAYOUT_RECEIPT_REQUIRED=true"
+          }
+        },
+        "required": [
+          "paymentMethod",
+          "idempotencyKey",
+          "securityConfirmationToken"
         ]
       },
       "AdminBanDto": {
@@ -5123,6 +5761,7 @@
             "enum": [
               "ORANGE_MONEY",
               "TELECEL_MONEY",
+              "CASH",
               "SYSTEM"
             ]
           },
@@ -5146,6 +5785,7 @@
             "enum": [
               "ORANGE_MONEY",
               "TELECEL_MONEY",
+              "CASH",
               "SYSTEM"
             ]
           },

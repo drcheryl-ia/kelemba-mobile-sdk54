@@ -63,6 +63,11 @@ function buildReceiptHtml(r: PaymentReceiptData): string {
           <span class="label">Bénéficiaire du tour</span>
           <span class="value">${escapeHtml(r.beneficiaryName)}</span>
         </div>` : ''}
+        ${r.beneficiaryNetAmount != null && r.beneficiaryNetAmount > 0 ? `
+        <div class="row">
+          <span class="label">Bénéfice net (après votre cotisation)</span>
+          <span class="value">${r.beneficiaryNetAmount.toLocaleString('fr-FR')} FCFA</span>
+        </div>` : ''}
         <div class="row">
           <span class="label">Payeur</span>
           <span class="value">${escapeHtml(r.payerName)} — ${escapeHtml(r.payerPhone)}</span>

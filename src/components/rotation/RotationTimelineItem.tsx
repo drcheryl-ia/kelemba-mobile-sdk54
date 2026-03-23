@@ -159,9 +159,23 @@ export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
         {cycle.isCurrentUserBeneficiary && cycle.displayStatus === 'PROCHAIN' && (
           <View style={styles.yourTurnBanner}>
             <Text style={styles.yourTurnText}>
-              {"C'est votre tour !"}
+              {t(
+                'rotation.yourTurnContributorHint',
+                'Vous recevez le pot ce tour une fois votre cotisation enregistrée.'
+              )}
             </Text>
           </View>
+        )}
+        {cycle.beneficiaryNetAmount != null && cycle.beneficiaryNetAmount > 0 && (
+          <Text
+            style={[
+              styles.netPayoutText,
+              isDarkCard ? styles.textWhiteMuted : styles.textMuted,
+            ]}
+          >
+            {t('rotation.netPayoutLabel', 'Bénéfice net (pot − votre cotisation)')} :{' '}
+            {cycle.beneficiaryNetAmount.toLocaleString('fr-FR')} FCFA
+          </Text>
         )}
         {showProgressBar && (
           <View style={styles.progressSection}>
@@ -304,6 +318,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  netPayoutText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
   },
   progressSection: {
     marginTop: 4,

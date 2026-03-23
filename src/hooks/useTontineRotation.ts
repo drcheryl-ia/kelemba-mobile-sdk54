@@ -86,6 +86,7 @@ function mapToRotationCycle(
     actualPayoutDate: raw.actualPayoutDate,
     collectedAmount: raw.collectedAmount,
     totalExpected: raw.totalExpected,
+    beneficiaryNetAmount: raw.beneficiaryNetAmount,
     status: raw.status,
     displayStatus,
     collectionProgress,

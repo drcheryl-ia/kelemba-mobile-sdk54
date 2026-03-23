@@ -7,6 +7,7 @@ import {
   getTontineCreatorName,
   isTontineCreatorMember,
   resolvePaymentSubmissionMode,
+  shouldAutoApproveCreatorCash,
 } from '@/utils/paymentFlow';
 
 function buildMembers(): TontineMember[] {
@@ -68,5 +69,32 @@ describe('paymentFlow', () => {
     expect(getCashMethodSublabel(false)).toContain("organisateur");
     expect(getCashSelectionInfoText(false)).toContain('preuve');
     expect(getCashSummaryInfoText('10 000 FCFA', false)).toContain('validation');
+  });
+
+  it('requests creator auto-approval until cash is fully completed with no pending validation', () => {
+    expect(
+      shouldAutoApproveCreatorCash({
+        status: 'PENDING',
+        validationRequestUid: 'validation-1',
+      })
+    ).toBe(true);
+    expect(
+      shouldAutoApproveCreatorCash({
+        status: 'PENDING',
+        validationRequestUid: null,
+      })
+    ).toBe(true);
+    expect(
+      shouldAutoApproveCreatorCash({
+        status: 'COMPLETED',
+        validationRequestUid: 'validation-1',
+      })
+    ).toBe(true);
+    expect(
+      shouldAutoApproveCreatorCash({
+        status: 'COMPLETED',
+        validationRequestUid: null,
+      })
+    ).toBe(false);
   });
 });

@@ -9,6 +9,8 @@ export enum ApiErrorCode {
   OTP_MAX_ATTEMPTS_EXCEEDED = 'OTP_MAX_ATTEMPTS_EXCEEDED',
   OTP_RATE_LIMIT_EXCEEDED = 'OTP_RATE_LIMIT_EXCEEDED',
   PHONE_ALREADY_USED = 'PHONE_ALREADY_USED',
+  /** Conflit HTTP 409 sans code métier explicite (ex. paiement concurrent — ne pas confondre avec téléphone) */
+  CONFLICT = 'CONFLICT',
   KYC_NOT_VERIFIED = 'KYC_NOT_VERIFIED',
   ALREADY_ORGANIZER = 'ALREADY_ORGANIZER',
 
@@ -38,5 +40,11 @@ export enum ApiErrorCode {
   FORBIDDEN = 'FORBIDDEN',
   NOT_FOUND = 'NOT_FOUND',
   RATE_LIMITED = 'RATE_LIMITED',
+  /** Erreur de validation HTTP 400/422 (message serveur conservé) */
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  /** Confirmation de sécurité attendue avant l’action */
+  SECURITY_CONFIRMATION_REQUIRED = 'SECURITY_CONFIRMATION_REQUIRED',
+  /** Jeton step-up absent, invalide ou expiré */
+  SECURITY_CONFIRMATION_INVALID = 'SECURITY_CONFIRMATION_INVALID',
   UNKNOWN = 'UNKNOWN',
 }

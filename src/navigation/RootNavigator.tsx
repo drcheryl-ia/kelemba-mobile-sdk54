@@ -29,6 +29,7 @@ import {
   SavingsContributeScreen,
   SavingsWithdrawScreen,
 } from '@/screens/savings';
+import { CyclePayoutScreen } from '@/screens/payouts/CyclePayoutScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -59,6 +60,11 @@ export const RootNavigator: React.FC = () => (
     />
     <Stack.Screen name="CreateTontine" component={CreateTontineScreen} />
     <Stack.Screen name="TontineDetails" component={TontineDetailsScreen} />
+    <Stack.Screen
+      name="CyclePayoutScreen"
+      component={CyclePayoutScreen}
+      options={{ headerShown: false, presentation: 'modal' }}
+    />
     <Stack.Screen
       name="PaymentScreen"
       component={PaymentScreen}

@@ -1,4 +1,4 @@
-import type { PaymentMethod } from '@/types/payment';
+import type { PaymentMethod, PaymentStatus } from '@/types/payment';
 import type { TontineMember } from '@/types/tontine';
 
 export type PaymentSubmissionMode = 'MOBILE_MONEY' | 'CASH_MEMBER' | 'CASH_CREATOR';
@@ -49,4 +49,11 @@ export function getCashSummaryInfoText(
   return isTontineCreator
     ? `En confirmant, vous auto-validez votre versement de ${formattedAmount}. Le paiement sera marqué comme complété immédiatement.`
     : `En confirmant, vous enregistrez une remise de ${formattedAmount} en espèces. Une preuve vous sera ensuite demandée pour validation par l'organisateur.`;
+}
+
+export function shouldAutoApproveCreatorCash(result: {
+  status: PaymentStatus;
+  validationRequestUid: string | null;
+}): boolean {
+  return result.status !== 'COMPLETED' || result.validationRequestUid !== null;
 }

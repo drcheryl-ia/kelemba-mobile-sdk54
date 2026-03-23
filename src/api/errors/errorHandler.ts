@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { ApiError } from './ApiError';
 import { ApiErrorCode } from './errorCodes';
+import { inferCodeFromHttpMessage } from './inferHttpErrorCode';
 import { logger } from '@/utils/logger';
 
 const SENSITIVE_FIELDS = [
@@ -11,6 +12,7 @@ const SENSITIVE_FIELDS = [
   'accessToken',
   'otp',
   'secret',
+  'securityConfirmationToken',
 ] as const;
 
 function maskSensitiveBody(body: Record<string, unknown>): Record<string, unknown> {
@@ -37,6 +39,8 @@ function getSafeBody(rawBody: unknown): unknown {
   }
 }
 
+export { inferCodeFromHttpMessage } from './inferHttpErrorCode';
+
 export function parseApiError(err: unknown): ApiError {
   if (ApiError.isApiError(err)) return err;
 
@@ -61,10 +65,6 @@ export function parseApiError(err: unknown): ApiError {
     const status = err.response.status;
     const data = err.response.data as Record<string, unknown> | undefined;
     const rawCode = data?.code as string | undefined;
-    const code =
-      rawCode && Object.values(ApiErrorCode).includes(rawCode as ApiErrorCode)
-        ? (rawCode as ApiErrorCode)
-        : mapHttpStatusToCode(status);
 
     const messageRaw = data?.message;
     const message =
@@ -72,7 +72,25 @@ export function parseApiError(err: unknown): ApiError {
         ? messageRaw
         : Array.isArray(messageRaw)
           ? messageRaw.join('; ')
-          : (err.message ?? 'Unknown error');
+          : messageRaw != null && typeof messageRaw === 'object'
+            ? JSON.stringify(messageRaw)
+            : (err.message ?? 'Unknown error');
+
+    let code: ApiErrorCode =
+      rawCode && Object.values(ApiErrorCode).includes(rawCode as ApiErrorCode)
+        ? (rawCode as ApiErrorCode)
+        : mapHttpStatusToCode(status);
+
+    const inferred = inferCodeFromHttpMessage(message, status);
+    if (
+      inferred &&
+      (!rawCode ||
+        !Object.values(ApiErrorCode).includes(rawCode as ApiErrorCode) ||
+        code === ApiErrorCode.UNKNOWN ||
+        code === ApiErrorCode.VALIDATION_ERROR)
+    ) {
+      code = inferred;
+    }
 
     const fullUrl = err.config?.baseURL
       ? `${err.config.baseURL}${err.config.url ?? ''}`
@@ -119,12 +137,12 @@ export function parseApiError(err: unknown): ApiError {
 
 function mapHttpStatusToCode(status: number): ApiErrorCode {
   const map: Record<number, ApiErrorCode> = {
-    400: ApiErrorCode.UNKNOWN,
+    400: ApiErrorCode.VALIDATION_ERROR,
     401: ApiErrorCode.TOKEN_EXPIRED,
     403: ApiErrorCode.FORBIDDEN,
     404: ApiErrorCode.NOT_FOUND,
-    409: ApiErrorCode.PHONE_ALREADY_USED,
-    422: ApiErrorCode.UNKNOWN,
+    409: ApiErrorCode.CONFLICT,
+    422: ApiErrorCode.VALIDATION_ERROR,
     429: ApiErrorCode.RATE_LIMITED,
     500: ApiErrorCode.SERVER_ERROR,
     502: ApiErrorCode.SERVER_ERROR,

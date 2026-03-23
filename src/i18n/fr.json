@@ -37,14 +37,17 @@
     "receiptConfirmed": "Paiement confirmé",
     "receiptTontine": "Tontine",
     "receiptCycle": "Cycle",
-    "receiptBeneficiary": "Bénéficiaire",
+    "receiptBeneficiary": "Bénéficiaire du tour",
+    "receiptBeneficiaryNet": "Bénéfice net (après votre cotisation)",
     "receiptBaseAmount": "Montant de base",
     "receiptPenalty": "Pénalités retard",
     "receiptTotal": "TOTAL PAYÉ",
     "receiptOperatorRef": "Réf. opérateur",
     "receiptDate": "Date",
     "receiptShare": "Partager le reçu",
-    "receiptDownload": "Télécharger"
+    "receiptDownload": "Télécharger",
+    "conflictTitle": "Action impossible pour le moment",
+    "conflictMessage": "L'opération entre en conflit avec l'état actuel du cycle ou un paiement en cours. Réessayez dans un instant."
   },
   "auth": {
     "login": "Connexion",
@@ -340,9 +343,10 @@
     "nextPaymentLabel": "Prochain versement",
     "collectedLabel": "Collecté",
     "expectedLabel": "Attendu",
+    "netPayoutLabel": "Bénéfice net (pot − votre cotisation)",
     "contributionStatusTitle": "STATUT DES COTISATIONS",
     "membersLabel": "membres",
-    "receivesPot": "Reçoit le pot ce mois",
+    "receivesPot": "Bénéficiaire du tour",
     "paid": "Payé",
     "pending": "En attente",
     "currentTurn": "Tour actuel",
@@ -410,6 +414,8 @@
     "tourLabel": "Tour {{number}}",
     "rotationNumberLine": "Rotation {{n}}",
     "yourTurn": "C'est votre tour !",
+    "yourTurnContributorHint": "Vous recevez le pot ce tour une fois votre cotisation enregistrée.",
+    "netPayoutLabel": "Bénéfice net (pot − votre cotisation)",
     "collected": "collecté"
   },
   "inviteMembers": {

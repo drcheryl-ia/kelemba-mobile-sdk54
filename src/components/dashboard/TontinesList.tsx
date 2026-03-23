@@ -17,6 +17,8 @@ export interface TontinesListProps {
   isLoading: boolean;
   onTontinePress: (tontine: TontineListItem) => void;
   onSeeAllPress: () => void;
+  /** Affiche rôle, effectif et CTA contextuel (dashboard uniquement). */
+  showDashboardMeta?: boolean;
 }
 
 const formatFCFA = (amount: number): string =>
@@ -47,6 +49,7 @@ export const TontinesList: React.FC<TontinesListProps> = ({
   isLoading,
   onTontinePress,
   onSeeAllPress,
+  showDashboardMeta = false,
 }) => {
   const { t } = useTranslation();
   const getPendingLabel = (tontine: TontineListItem) => {
@@ -142,10 +145,42 @@ export const TontinesList: React.FC<TontinesListProps> = ({
                   <Text style={[styles.tontineName, isPending && styles.textMuted]} numberOfLines={1}>
                     {tontine.name}
                   </Text>
+                  {showDashboardMeta ? (
+                    <View style={styles.roleRow}>
+                      <View
+                        style={[
+                          styles.roleBadge,
+                          tontine.membershipRole === 'CREATOR' || tontine.isCreator
+                            ? styles.roleBadgeOrg
+                            : styles.roleBadgeMem,
+                        ]}
+                      >
+                        <Text style={styles.roleBadgeText}>
+                          {tontine.membershipRole === 'CREATOR' || tontine.isCreator
+                            ? 'Organisateur'
+                            : 'Membre'}
+                        </Text>
+                      </View>
+                      {(tontine.membershipRole === 'CREATOR' || tontine.isCreator) &&
+                      tontine.activeMemberCount != null ? (
+                        <Text style={styles.metaHint}>
+                          {tontine.activeMemberCount} membre
+                          {tontine.activeMemberCount > 1 ? 's' : ''}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
                   <Text style={styles.amount}>
                     {formatFCFA(tontine.amountPerShare)}
                     {tontine.frequency ? frequencyLabel[tontine.frequency] : ' / mois'}
                   </Text>
+                  {showDashboardMeta &&
+                  tontine.currentCycle != null &&
+                  tontine.totalCycles > 0 ? (
+                    <Text style={styles.cycleLine}>
+                      Cycle {tontine.currentCycle}/{tontine.totalCycles}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
               <View style={styles.cardFooter}>
@@ -157,6 +192,13 @@ export const TontinesList: React.FC<TontinesListProps> = ({
                   <Text style={styles.badgeText}>{payUi.badgeLabel}</Text>
                 </View>
               </View>
+              {showDashboardMeta && !isPending ? (
+                <Text style={styles.ctaHint}>
+                  {tontine.membershipRole === 'CREATOR' || tontine.isCreator
+                    ? 'Gérer la tontine'
+                    : 'Cotiser ou suivre'}
+                </Text>
+              ) : null}
             </Pressable>
           </GradientBorderCard>
           );
@@ -295,5 +337,46 @@ const styles = StyleSheet.create({
   },
   textMuted: {
     color: '#9CA3AF',
+  },
+  roleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 4,
+    marginTop: 2,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  roleBadgeOrg: {
+    backgroundColor: '#DCFCE7',
+  },
+  roleBadgeMem: {
+    backgroundColor: '#EEF2FF',
+  },
+  roleBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  metaHint: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  cycleLine: {
+    fontSize: 12,
+    color: '#0055A5',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  ctaHint: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1A6B3C',
   },
 });

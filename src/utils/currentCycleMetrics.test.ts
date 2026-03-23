@@ -86,8 +86,9 @@ describe('resolveCurrentCycleMetrics', () => {
     });
 
     expect(metrics.collected).toBe(0);
-    expect(metrics.expected).toBe(40000);
+    expect(metrics.expected).toBe(50000);
     expect(metrics.progress).toBe(0);
+    expect(metrics.beneficiaryNetAmount).toBe(40000);
   });
 
   it('uses enriched backend values when they are present', () => {
@@ -104,12 +105,14 @@ describe('resolveCurrentCycleMetrics', () => {
     expect(metrics.collected).toBe(0);
     expect(metrics.expected).toBe(50000);
     expect(metrics.progress).toBe(0);
+    expect(metrics.beneficiaryNetAmount).toBe(40000);
   });
 
-  it('falls back to completed members when enriched collected amount is absent', () => {
+  it('falls back to completed members when enriched collected amount is absent, including the beneficiary', () => {
     const members = buildMembers();
     members[0].currentCyclePaymentStatus = 'COMPLETED';
     members[1].currentCyclePaymentStatus = 'COMPLETED';
+    members[3].currentCyclePaymentStatus = 'COMPLETED';
     members[2].currentCyclePaymentStatus = 'PROCESSING';
 
     const metrics = resolveCurrentCycleMetrics({
@@ -118,9 +121,10 @@ describe('resolveCurrentCycleMetrics', () => {
       members,
     });
 
-    expect(metrics.collected).toBe(30000);
-    expect(metrics.expected).toBe(40000);
-    expect(metrics.progress).toBe(0.75);
+    expect(metrics.collected).toBe(40000);
+    expect(metrics.expected).toBe(50000);
+    expect(metrics.progress).toBe(0.8);
+    expect(metrics.beneficiaryNetAmount).toBe(40000);
   });
 
   it('bounds progress to 0 when expected is zero and backend progress is invalid', () => {
@@ -137,5 +141,20 @@ describe('resolveCurrentCycleMetrics', () => {
     expect(metrics.collected).toBe(0);
     expect(metrics.expected).toBe(0);
     expect(metrics.progress).toBe(0);
+    expect(metrics.beneficiaryNetAmount).toBeNull();
+  });
+
+  it('uses the backend beneficiary net amount when it is provided', () => {
+    const metrics = resolveCurrentCycleMetrics({
+      currentCycle: buildCycle({
+        collectedAmount: 25000,
+        totalExpected: 50000,
+        beneficiaryNetAmount: 37500,
+      }),
+      amountPerShare: 10000,
+      members: buildMembers(),
+    });
+
+    expect(metrics.beneficiaryNetAmount).toBe(37500);
   });
 });

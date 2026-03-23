@@ -13,6 +13,7 @@ import type {
   PaymentStatusDto,
 } from '@/types/payment';
 import type { PaymentHistoryItem } from '@/types/tontine';
+import { parseNextPaymentPayload } from '@/utils/nextPaymentUi';
 
 export interface PaymentHistoryResponse {
   data: PaymentHistoryItem[];
@@ -35,11 +36,11 @@ type PaymentHistoryApiPayload = PaymentHistoryResponse & {
 export async function getNextPayment(): Promise<NextPaymentData | null> {
   const { url } = ENDPOINTS.USERS.NEXT_PAYMENT;
   try {
-    const response = await apiClient.get<NextPaymentData>(url);
+    const response = await apiClient.get<unknown>(url);
     if (response.status === 204) {
       return null;
     }
-    return response.data;
+    return parseNextPaymentPayload(response.data);
   } catch (err: unknown) {
     const apiErr = parseApiError(err);
 
@@ -60,20 +61,45 @@ export async function getNextPayment(): Promise<NextPaymentData | null> {
   }
 }
 
+/** Filtres optionnels historique — alignés sur le contrat backend (champs ignorés si non supportés). */
+export interface PaymentHistoryFilters {
+  /** ISO date (début de période) */
+  from?: string;
+  /** ISO date (fin de période) */
+  to?: string;
+  method?: string;
+  /** Tri par date côté serveur ; défaut décroissant */
+  sortOrder?: 'asc' | 'desc';
+}
+
 /**
  * Historique paginé des paiements de l'utilisateur connecté.
- * GET /api/v1/payments/my-history?page=1&pageSize=20&status=...
+ * GET /api/v1/payments/my-history?page=1&pageSize=20&status=...&from=&to=&method=&sortOrder=
  */
 export async function getPaymentHistory(
   page: number,
   pageSize: number,
-  status?: string
+  status?: string,
+  filters?: PaymentHistoryFilters
 ): Promise<PaymentHistoryResponse> {
   const { url } = ENDPOINTS.PAYMENTS.MY_HISTORY;
   try {
-    const params: Record<string, number | string> = { page, pageSize };
+    const params: Record<string, number | string> = {
+      page,
+      pageSize,
+      sortOrder: filters?.sortOrder ?? 'desc',
+    };
     if (status != null && status !== '') {
       params.status = status;
+    }
+    if (filters?.from != null && filters.from !== '') {
+      params.from = filters.from;
+    }
+    if (filters?.to != null && filters.to !== '') {
+      params.to = filters.to;
+    }
+    if (filters?.method != null && filters.method !== '') {
+      params.method = filters.method;
     }
     const response = await apiClient.get<PaymentHistoryApiPayload>(url, {
       params,
@@ -86,6 +112,17 @@ export async function getPaymentHistory(
         : [];
     const items: PaymentHistoryItem[] = rawItems.map((item: unknown) => {
       const r = item as Record<string, unknown>;
+      const memberUserUidRaw =
+        r.memberUserUid ?? r.memberUid ?? r.payerUserUid ?? r.userUid;
+      const memberUserUid =
+        memberUserUidRaw != null && String(memberUserUidRaw) !== ''
+          ? String(memberUserUidRaw)
+          : undefined;
+      const cashAutoValidated =
+        r.cashAutoValidated === true ||
+        r.autoValidated === true ||
+        r.validationSource === 'SYSTEM' ||
+        r.validationSource === 'AUTO';
       return {
         uid: String(r.uid ?? r.id ?? ''),
         cycleUid: r.cycleUid != null ? String(r.cycleUid) : undefined,
@@ -99,6 +136,8 @@ export async function getPaymentHistory(
         cycleNumber: Number(r.cycleNumber ?? 0),
         tontineUid: String(r.tontineUid ?? r.tontineId ?? ''),
         tontineName: String(r.tontineName ?? ''),
+        memberUserUid,
+        cashAutoValidated,
       };
     });
     return {
