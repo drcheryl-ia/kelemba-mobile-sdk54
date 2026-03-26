@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   accountTypeBadge: {
-    alignSelf: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,

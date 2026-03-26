@@ -1,12 +1,26 @@
-import React from 'react';
+/**
+ * Ligne notification — carte premium, swipes, sélection (mode édition).
+ */
+import React, { memo, useCallback, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import type { Notification } from '@/types/notification.types';
 import { logger } from '@/utils/logger';
+import {
+  getNotificationAccent,
+  NOTIFICATION_ACCENT_STYLES,
+} from '@/utils/notificationVisual';
 import { NotificationIcon } from './NotificationIcon';
 
-function formatRelativeTime(isoDate: string): string {
+const GREEN = '#1A6B3C';
+const RED = '#D0021B';
+
+function formatRelativeNotificationTime(
+  isoDate: string,
+  t: (k: string, o?: Record<string, number>) => string
+): string {
   const date = new Date(isoDate);
   const now = Date.now();
   const diffMs = now - date.getTime();
@@ -14,156 +28,271 @@ function formatRelativeTime(isoDate: string): string {
   const diffHours = Math.floor(diffMs / 3_600_000);
   const diffDays = Math.floor(diffMs / 86_400_000);
 
-  if (diffMins < 1) return "À l'instant";
-  if (diffMins < 60) return `Il y a ${diffMins} min`;
-  if (diffHours < 24) return `Il y a ${diffHours}h`;
-  if (diffDays < 7) return `Il y a ${diffDays}j`;
+  if (diffMins < 1) return t('notifications.time.now');
+  if (diffMins < 60) return t('notifications.time.mins', { count: diffMins });
+  if (diffHours < 24) return t('notifications.time.hours', { count: diffHours });
+  if (diffDays < 7) return t('notifications.time.days', { count: diffDays });
   return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 }
 
 export interface NotificationItemProps {
   item: Notification;
-  onPress: (item: Notification) => void;
+  onOpen: (item: Notification) => void;
   onMarkAsRead: (uid: string) => void;
+  onRequestLocalHide: (item: Notification) => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (uid: string) => void;
+  onLongPressToEdit?: (uid: string) => void;
+  swipeEnabled?: boolean;
 }
 
-export const NotificationItem: React.FC<NotificationItemProps> = ({
+const NotificationItemInner: React.FC<NotificationItemProps> = ({
   item,
-  onPress,
+  onOpen,
   onMarkAsRead,
+  onRequestLocalHide,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
+  onLongPressToEdit,
+  swipeEnabled = true,
 }) => {
+  const { t } = useTranslation();
+  const swipeRef = useRef<Swipeable | null>(null);
+
   if (!item?.createdAt) {
     logger.error('NotificationItem: item invalide reçu', item);
     return null;
   }
 
   const isUnread = item.readAt === null;
-  const isHighPriority =
-    item.priority === 'CRITICAL' || item.priority === 'HIGH';
-  const isSystem = item.type === 'SYSTEM';
+  const accent = getNotificationAccent(item.type);
+  const accentStyle = NOTIFICATION_ACCENT_STYLES[accent];
+  const timeLabel = formatRelativeNotificationTime(item.createdAt, t);
 
-  const renderRightActions = () => (
+  const closeSwipe = useCallback(() => {
+    swipeRef.current?.close();
+  }, []);
+
+  const renderLeftActions = useCallback(() => {
+    if (!isUnread) return null;
+    return (
+      <Pressable
+        style={styles.swipeRead}
+        onPress={() => {
+          onMarkAsRead(item.uid);
+          closeSwipe();
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={t('notifications.swipe.markRead')}
+      >
+        <Ionicons name="checkmark-done" size={22} color="#FFFFFF" />
+        <Text style={styles.swipeReadLabel}>{t('notifications.swipe.markRead')}</Text>
+      </Pressable>
+    );
+  }, [closeSwipe, isUnread, item.uid, onMarkAsRead, t]);
+
+  const renderRightActions = useCallback(
+    () => (
+      <Pressable
+        style={styles.swipeHide}
+        onPress={() => {
+          onRequestLocalHide(item);
+          closeSwipe();
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={t('notifications.swipe.hideLocal')}
+      >
+        <Ionicons name="eye-off-outline" size={22} color="#FFFFFF" />
+        <Text style={styles.swipeHideLabel}>{t('notifications.swipe.hideLocal')}</Text>
+      </Pressable>
+    ),
+    [closeSwipe, item, onRequestLocalHide, t]
+  );
+
+  const cardBody = (
     <Pressable
-      style={styles.deleteAction}
-      onPress={() => onMarkAsRead(item.uid)}
+      style={[
+        styles.row,
+        { borderLeftColor: accentStyle.border, backgroundColor: accentStyle.tintBg },
+        isUnread && styles.rowUnreadBorder,
+        selected && styles.rowSelected,
+      ]}
+      onPress={() => {
+        if (selectionMode && onToggleSelect) {
+          onToggleSelect(item.uid);
+          return;
+        }
+        onOpen(item);
+      }}
+      onLongPress={() => {
+        if (selectionMode) return;
+        onLongPressToEdit?.(item.uid);
+      }}
+      delayLongPress={380}
       accessibilityRole="button"
-      accessibilityLabel="Supprimer"
+      accessibilityLabel={item.title}
+      accessibilityState={{ selected: selectionMode && selected }}
     >
-      <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
-      <Text style={styles.deleteLabel}>SUPPR.</Text>
+      {selectionMode ? (
+        <View style={styles.checkSlot}>
+          <Ionicons
+            name={selected ? 'checkbox' : 'square-outline'}
+            size={24}
+            color={selected ? GREEN : '#9CA3AF'}
+          />
+        </View>
+      ) : null}
+      <NotificationIcon type={item.type} />
+      <View style={styles.body}>
+        <Text
+          style={[styles.title, isUnread ? styles.titleUnread : styles.titleRead]}
+          numberOfLines={2}
+        >
+          {item.title}
+        </Text>
+        <Text style={styles.message} numberOfLines={2}>
+          {item.message}
+        </Text>
+      </View>
+      <View style={styles.right}>
+        {isUnread ? <View style={styles.unreadDot} accessibilityLabel="Non lu" /> : <View style={styles.dotSpacer} />}
+        <Text style={styles.timestamp}>{timeLabel}</Text>
+      </View>
     </Pressable>
   );
 
+  if (!swipeEnabled || selectionMode) {
+    return <View style={styles.cardWrap}>{cardBody}</View>;
+  }
+
   return (
-    <Swipeable renderRightActions={renderRightActions}>
-      <Pressable
-        style={[styles.row, isUnread && styles.rowUnread]}
-        onPress={() => onPress(item)}
-        accessibilityRole="button"
-        accessibilityLabel={item.title}
+    <View style={styles.cardWrap}>
+      <Swipeable
+        ref={swipeRef}
+        renderLeftActions={isUnread ? renderLeftActions : undefined}
+        renderRightActions={renderRightActions}
+        friction={2}
+        overshootLeft={false}
+        overshootRight={false}
       >
-        <NotificationIcon type={item.type} />
-        <View style={styles.body}>
-          <Text
-            style={[
-              styles.title,
-              isUnread && styles.titleUnread,
-              isHighPriority && styles.titleCritical,
-              !isUnread && styles.titleRead,
-            ]}
-            numberOfLines={2}
-          >
-            {item.title}
-          </Text>
-          {isSystem ? (
-            <Text style={styles.systemLink} numberOfLines={1}>
-              {item.message}
-            </Text>
-          ) : (
-            <Text style={styles.message} numberOfLines={2}>
-              {item.message}
-            </Text>
-          )}
-        </View>
-        <View style={styles.right}>
-          {isUnread && <View style={styles.unreadDot} />}
-          <Text style={styles.timestamp}>{formatRelativeTime(item.createdAt)}</Text>
-        </View>
-      </Pressable>
-    </Swipeable>
+        {cardBody}
+      </Swipeable>
+    </View>
   );
 };
 
+export const NotificationItem = memo(NotificationItemInner);
+
 const styles = StyleSheet.create({
+  cardWrap: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 72,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    alignItems: 'flex-start',
+    minHeight: 88,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     gap: 12,
+    borderLeftWidth: 4,
+    borderRadius: 16,
   },
-  rowUnread: {
-    backgroundColor: '#FFF5F5',
+  rowUnreadBorder: {
+    borderLeftWidth: 4,
+  },
+  rowSelected: {
+    backgroundColor: '#DCFCE7',
+  },
+  checkSlot: {
+    justifyContent: 'center',
+    paddingRight: 2,
   },
   body: {
     flex: 1,
     minWidth: 0,
   },
   title: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1A1A2E',
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: -0.2,
   },
   titleUnread: {
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  titleCritical: {
-    color: '#D0021B',
+    color: '#111827',
   },
   titleRead: {
-    fontWeight: '400',
+    fontWeight: '600',
     color: '#6B7280',
   },
   message: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6B7280',
-    marginTop: 2,
-  },
-  systemLink: {
-    fontSize: 12,
-    color: '#1A6B3C',
-    textDecorationLine: 'underline',
-    marginTop: 2,
+    marginTop: 4,
+    lineHeight: 18,
   },
   right: {
     alignItems: 'flex-end',
-    gap: 4,
+    gap: 6,
+    minWidth: 56,
   },
   unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
     backgroundColor: '#0055A5',
   },
-  timestamp: {
-    fontSize: 12,
-    color: '#6B7280',
+  dotSpacer: {
+    width: 9,
+    height: 9,
   },
-  deleteAction: {
-    backgroundColor: '#D0021B',
+  timestamp: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  swipeRead: {
+    backgroundColor: GREEN,
     justifyContent: 'center',
     alignItems: 'center',
-    width: 80,
-    minHeight: 72,
-    paddingHorizontal: 12,
+    width: 88,
+    minHeight: 88,
+    paddingHorizontal: 8,
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
   },
-  deleteLabel: {
+  swipeReadLabel: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
     marginTop: 4,
+    textAlign: 'center',
+  },
+  swipeHide: {
+    backgroundColor: RED,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 88,
+    minHeight: 88,
+    paddingHorizontal: 8,
+    borderTopLeftRadius: 16,
+    borderBottomLeftRadius: 16,
+  },
+  swipeHideLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 4,
+    textAlign: 'center',
   },
 });

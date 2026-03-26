@@ -149,7 +149,7 @@ export function usePushNotifications(
               });
               break;
             default:
-              nav.navigate('MainTabs', { screen: 'History' });
+              nav.navigate('NotificationsScreen');
           }
         });
     };

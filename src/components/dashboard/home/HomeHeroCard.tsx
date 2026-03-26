@@ -1,5 +1,6 @@
 /**
- * Carte héro Accueil — priorité métier membre ou organisateur.
+ * Carte héro Accueil — seule surface de rappel (priorité = buildDashboardReminderCards).
+ * Shell aligné sur `DashboardReminderCard`.
  */
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
@@ -7,26 +8,26 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NextPaymentData } from '@/types/payment';
 import { formatFcfa } from '@/utils/formatters';
 import type { DashboardReminderCardVm } from '@/components/dashboard/paymentReminderBanner.helpers';
+import { DASHBOARD_REMINDER_TONES } from '@/components/dashboard/dashboardReminderTokens';
+import { DashboardReminderCard } from '@/components/dashboard/DashboardReminderCard';
+import type { DashboardReminderTone } from '@/components/dashboard/dashboardReminderTokens';
+import { getDashboardReminderContent } from '@/components/dashboard/dashboardReminderContent';
 
-type MemberHeroProps = {
-  variant: 'member';
-  primaryReminder: DashboardReminderCardVm | null;
+export type HomeHeroCardProps = {
+  reminders: DashboardReminderCardVm[];
   nextPayment: NextPaymentData | null;
   isLoading: boolean;
+  nextPaymentAmountDue: number | null;
+  nextPaymentPenaltyAmount: number | null;
+  /** Affiché uniquement si `reminders` est vide (organisateur). */
+  organizerFallback?: {
+    cashPendingCount: number;
+    overdueMembersHint: number;
+  };
   onPressPrimary: () => void;
   onPressUpToDate: () => void;
+  onOrganizerTreat?: () => void;
 };
-
-type OrganizerHeroProps = {
-  variant: 'organizer';
-  cashPendingCount: number;
-  overdueMembersHint: number;
-  isLoading: boolean;
-  onPressTreat: () => void;
-  onPressDashboard: () => void;
-};
-
-export type HomeHeroCardProps = MemberHeroProps | OrganizerHeroProps;
 
 const MS_PER_DAY = 86_400_000;
 
@@ -43,7 +44,7 @@ function daysUntilDue(dueDate: string): number {
 function memberHeroTitle(
   reminder: DashboardReminderCardVm | null,
   nextPayment: NextPaymentData | null
-): { title: string; subtitle: string; tone: 'danger' | 'warning' | 'info' | 'success' } {
+): { title: string; subtitle: string; tone: DashboardReminderTone } {
   if (reminder?.kind === 'pendingValidation') {
     return {
       title: 'Cotisation en attente de validation',
@@ -103,30 +104,42 @@ function memberHeroTitle(
     };
   }
   return {
-    title: 'Vous êtes à jour',
+    title: 'Tout est sous contrôle',
     subtitle: 'Aucune cotisation urgente pour le moment.',
     tone: 'success',
   };
 }
 
-const TONE_STYLES = {
-  danger: { bg: '#FEF2F2', border: '#FECACA', accent: '#D0021B' },
-  warning: { bg: '#FFFBEB', border: '#FDE68A', accent: '#F5A623' },
-  info: { bg: '#EFF6FF', border: '#BFDBFE', accent: '#0055A5' },
-  success: { bg: '#F0FDF4', border: '#BBF7D0', accent: '#1A6B3C' },
-};
+function memberHeroIcon(
+  primaryReminder: DashboardReminderCardVm | null,
+  tone: DashboardReminderTone
+): React.ComponentProps<typeof Ionicons>['name'] {
+  if (tone === 'success') return 'checkmark-done-outline';
+  if (primaryReminder?.kind === 'pendingValidation') return 'shield-checkmark-outline';
+  if (tone === 'danger') return 'alert-circle-outline';
+  return 'wallet-outline';
+}
 
 export const HomeHeroCard: React.FC<HomeHeroCardProps> = (props) => {
-  if (props.variant === 'organizer') {
-    const {
-      cashPendingCount,
-      overdueMembersHint,
-      isLoading,
-      onPressTreat,
-      onPressDashboard,
-    } = props;
+  const {
+    reminders,
+    nextPayment,
+    isLoading,
+    nextPaymentAmountDue,
+    nextPaymentPenaltyAmount,
+    organizerFallback,
+    onPressPrimary,
+    onPressUpToDate,
+    onOrganizerTreat,
+  } = props;
+
+  const primary = reminders[0] ?? null;
+  const otherCount = Math.max(0, reminders.length - 1);
+
+  if (organizerFallback != null && reminders.length === 0) {
+    const { cashPendingCount, overdueMembersHint } = organizerFallback;
     const hasWork = cashPendingCount > 0 || overdueMembersHint > 0;
-    const colors = hasWork ? TONE_STYLES.warning : TONE_STYLES.success;
+    const colors = hasWork ? DASHBOARD_REMINDER_TONES.warning : DASHBOARD_REMINDER_TONES.success;
     return (
       <View style={[styles.wrap, { backgroundColor: colors.bg, borderColor: colors.border }]}>
         {isLoading ? (
@@ -159,7 +172,7 @@ export const HomeHeroCard: React.FC<HomeHeroCardProps> = (props) => {
               {hasWork ? (
                 <Pressable
                   style={[styles.ctaMain, { backgroundColor: colors.accent }]}
-                  onPress={onPressTreat}
+                  onPress={onOrganizerTreat}
                   accessibilityRole="button"
                   accessibilityLabel="Traiter maintenant"
                 >
@@ -169,7 +182,7 @@ export const HomeHeroCard: React.FC<HomeHeroCardProps> = (props) => {
               ) : null}
               <Pressable
                 style={styles.ctaGhost}
-                onPress={onPressDashboard}
+                onPress={onPressUpToDate}
                 accessibilityRole="button"
               >
                 <Text style={styles.ctaGhostText}>Voir mes tontines</Text>
@@ -181,63 +194,95 @@ export const HomeHeroCard: React.FC<HomeHeroCardProps> = (props) => {
     );
   }
 
-  const { primaryReminder, nextPayment, isLoading, onPressPrimary, onPressUpToDate } = props;
-  const meta = memberHeroTitle(primaryReminder, nextPayment);
-  const colors = TONE_STYLES[meta.tone];
-  const showPrimaryCta =
-    primaryReminder != null ||
-    (nextPayment != null && meta.tone !== 'success');
+  if (primary != null) {
+    const amtDue =
+      primary.kind === 'nextPayment' ? nextPaymentAmountDue : null;
+    const penalty =
+      primary.kind === 'nextPayment' ? nextPaymentPenaltyAmount : null;
+    const content = getDashboardReminderContent(primary, amtDue, penalty);
+    const detailLines = [content.amountLabel, content.detail].filter(
+      (s) => typeof s === 'string' && s.trim() !== ''
+    );
+
+    if (isLoading) {
+      const loadTone = DASHBOARD_REMINDER_TONES.info;
+      return (
+        <View
+          style={[
+            styles.wrap,
+            { backgroundColor: loadTone.bg, borderColor: loadTone.border },
+          ]}
+        >
+          <ActivityIndicator color={loadTone.accent} style={{ paddingVertical: 24 }} />
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.heroBlock}>
+        <DashboardReminderCard
+          tone={content.tone}
+          iconName={content.iconName}
+          title={content.title}
+          subtitle={content.subtitle}
+          detailLines={detailLines.length > 0 ? detailLines : undefined}
+          ctaLabel={content.ctaLabel}
+          onPress={onPressPrimary}
+          accessibilityLabel={`${content.ctaLabel} — ${primary.tontineName}`}
+        />
+        {otherCount > 0 ? (
+          <Text style={styles.otherRemindersHint} accessibilityRole="text">
+            {otherCount === 1
+              ? '1 autre rappel'
+              : `${otherCount} autres rappels`}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  const meta = memberHeroTitle(null, nextPayment);
+  const showPrimaryCta = nextPayment != null && meta.tone !== 'success';
+
+  if (isLoading) {
+    const loadTone = DASHBOARD_REMINDER_TONES.info;
+    return (
+      <View
+        style={[
+          styles.wrap,
+          { backgroundColor: loadTone.bg, borderColor: loadTone.border },
+        ]}
+      >
+        <ActivityIndicator color={loadTone.accent} style={{ paddingVertical: 24 }} />
+      </View>
+    );
+  }
+
+  const ctaLabel = showPrimaryCta ? 'Cotiser maintenant' : 'Voir mes tontines';
 
   return (
-    <View style={[styles.wrap, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-      {isLoading ? (
-        <ActivityIndicator color={colors.accent} style={{ paddingVertical: 24 }} />
-      ) : (
-        <>
-          <View style={styles.heroTop}>
-            <View style={[styles.iconCircle, { backgroundColor: colors.accent }]}>
-              <Ionicons
-                name={meta.tone === 'danger' ? 'alert-circle-outline' : 'wallet-outline'}
-                size={22}
-                color="#FFF"
-              />
-            </View>
-            <View style={styles.heroText}>
-              <Text style={styles.heroTitle}>{meta.title}</Text>
-              <Text style={styles.heroSub}>{meta.subtitle}</Text>
-            </View>
-          </View>
-          <View style={styles.heroActions}>
-            {showPrimaryCta ? (
-              <Pressable
-                style={[styles.ctaMain, { backgroundColor: colors.accent }]}
-                onPress={onPressPrimary}
-                accessibilityRole="button"
-                accessibilityLabel="Cotiser maintenant"
-              >
-                <Text style={styles.ctaMainText}>
-                  {primaryReminder?.kind === 'pendingValidation' ? 'Voir paiements' : 'Cotiser maintenant'}
-                </Text>
-                <Ionicons name="arrow-forward" size={18} color="#FFF" />
-              </Pressable>
-            ) : (
-              <Pressable
-                style={[styles.ctaMain, { backgroundColor: colors.accent }]}
-                onPress={onPressUpToDate}
-                accessibilityRole="button"
-              >
-                <Text style={styles.ctaMainText}>Voir mes tontines</Text>
-                <Ionicons name="arrow-forward" size={18} color="#FFF" />
-              </Pressable>
-            )}
-          </View>
-        </>
-      )}
-    </View>
+    <DashboardReminderCard
+      tone={meta.tone}
+      iconName={memberHeroIcon(null, meta.tone)}
+      title={meta.title}
+      subtitle={meta.subtitle}
+      ctaLabel={ctaLabel}
+      onPress={showPrimaryCta ? onPressPrimary : onPressUpToDate}
+    />
   );
 };
 
 const styles = StyleSheet.create({
+  heroBlock: {
+    marginBottom: 0,
+  },
+  otherRemindersHint: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
   wrap: {
     marginHorizontal: 20,
     borderRadius: 18,

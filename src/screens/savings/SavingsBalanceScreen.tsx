@@ -9,25 +9,37 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  FlatList,
+  RefreshControl,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import type { RootStackParamList } from '@/navigation/types';
 import { useMyBalance, useSavingsPeriods, useSavingsContributions } from '@/hooks/useSavings';
 import { formatFCFA, isUnlockReached, isPeriodOpen } from '@/utils/savings.utils';
 import { useSavingsDashboard } from '@/hooks/useSavings';
+import { SavingsScreenHeader } from '@/components/savings';
 
 type Route = RouteProp<RootStackParamList, 'SavingsBalanceScreen'>;
 
 export const SavingsBalanceScreen: React.FC = () => {
   const route = useRoute<Route>();
   const navigation = useNavigation();
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const { tontineUid } = route.params;
   const [selectedPeriodUid, setSelectedPeriodUid] = useState<string | null>(null);
 
-  const { data: balance, isLoading: balanceLoading } = useMyBalance(tontineUid);
+  const {
+    data: balance,
+    isLoading: balanceLoading,
+    isError: balanceError,
+    refetch: refetchBalance,
+    isFetching: balanceFetching,
+  } = useMyBalance(tontineUid);
   const { data: dashboard } = useSavingsDashboard(tontineUid);
-  const { data: periods = [] } = useSavingsPeriods(tontineUid);
+  const { data: periodsRaw } = useSavingsPeriods(tontineUid);
+  const periods = Array.isArray(periodsRaw) ? periodsRaw : [];
   const currentPeriod = balance?.currentPeriod ?? dashboard?.currentPeriod;
   const periodForQuery = selectedPeriodUid ?? currentPeriod?.uid ?? periods[0]?.uid ?? '';
   const { data: contributions = [], isLoading: contribLoading } = useSavingsContributions(
@@ -47,60 +59,120 @@ export const SavingsBalanceScreen: React.FC = () => {
     }
   }, [currentPeriod?.uid, periods, selectedPeriodUid]);
 
-  if (balanceLoading || !balance) {
+  if (balanceLoading && !balance) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1A6B3C" />
-      </View>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title={t('savingsBalance.defaultTitle')}
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#1A6B3C" />
+        </View>
+      </SafeAreaView>
     );
   }
 
+  if (balanceError && !balance) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title={t('savingsBalance.defaultTitle')}
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={[styles.container, styles.centered]}>
+          <Text style={styles.errorTitle}>{t('savingsBalance.loadErrorTitle')}</Text>
+          <Text style={styles.errorHint}>{t('savingsBalance.loadErrorHint')}</Text>
+          <Pressable style={styles.retryBtn} onPress={() => void refetchBalance()}>
+            <Text style={styles.retryBtnText}>{t('savingsBalance.retry')}</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!balance) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title={t('savingsBalance.defaultTitle')}
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#1A6B3C" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const headerTitle = dashboard?.tontine.name ?? t('savingsBalance.defaultTitle');
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SavingsScreenHeader
+        title={headerTitle}
+        subtitle={t('savingsBalance.subtitle')}
+        onBack={() => navigation.goBack()}
+        titleNumberOfLines={2}
+      />
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={balanceFetching}
+            onRefresh={() => void refetchBalance()}
+            tintColor="#1A6B3C"
+          />
+        }
       >
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Mon épargne</Text>
+          <Text style={styles.balanceLabel}>{t('savingsBalance.mySavings')}</Text>
           <Text style={styles.balanceAmount}>{formatFCFA(balance.personalBalance)}</Text>
           <View style={styles.badgeRow}>
             {balance.isBonusEligible ? (
               <View style={styles.badgeEligible}>
-                <Text style={styles.badgeText}>🏆 Bonus éligible</Text>
+                <Text style={styles.badgeText}>{t('savingsBalance.bonusEligible')}</Text>
               </View>
             ) : (
               <View style={styles.badgeLost}>
-                <Text style={styles.badgeText}>⚠️ Bonus perdu</Text>
+                <Text style={styles.badgeText}>{t('savingsBalance.bonusNotEligible')}</Text>
               </View>
             )}
           </View>
           <Text style={styles.unlockText}>
-            {unlockReached ? 'Disponible' : `Jours avant déblocage : ${balance.periodsRemaining ?? 0}`}
+            {unlockReached
+              ? t('savingsBalance.available')
+              : t('savingsBalance.daysBeforeUnlock', { count: balance.periodsRemaining ?? 0 })}
           </Text>
         </View>
 
         <View style={styles.statsGrid}>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Total versé brut</Text>
+            <Text style={styles.statLabel}>{t('savingsBalance.totalContributed')}</Text>
             <Text style={styles.statValue}>{formatFCFA(balance.totalContributed)}</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Périodes manquées</Text>
+            <Text style={styles.statLabel}>{t('savingsBalance.missedPeriods')}</Text>
             <Text style={styles.statValue}>{balance.missedPeriodsCount}</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Périodes restantes</Text>
+            <Text style={styles.statLabel}>{t('savingsBalance.periodsRemaining')}</Text>
             <Text style={styles.statValue}>{balance.periodsRemaining}</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Solde estimé à l'échéance</Text>
+            <Text style={styles.statLabel}>{t('savingsBalance.estimatedAtEnd')}</Text>
             <Text style={styles.statValue}>{formatFCFA(balance.estimatedFinalBalance)}</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Historique des versements</Text>
+        <Text style={styles.disclaimer}>{t('savingsBalance.disclaimer')}</Text>
+
+        <Text style={styles.sectionTitle}>{t('savingsBalance.historyTitle')}</Text>
         <View style={styles.periodSelector}>
           <ScrollView
             horizontal
@@ -122,7 +194,7 @@ export const SavingsBalanceScreen: React.FC = () => {
                     effectivePeriodUid === p.uid && styles.periodPillTextActive,
                   ]}
                 >
-                  Période {p.periodNumber}
+                  {t('savingsBalance.periodChip', { n: p.periodNumber })}
                 </Text>
               </Pressable>
             ))}
@@ -132,7 +204,7 @@ export const SavingsBalanceScreen: React.FC = () => {
         {contribLoading ? (
           <ActivityIndicator color="#1A6B3C" style={styles.loader} />
         ) : contributions.length === 0 ? (
-          <Text style={styles.emptyText}>Aucun versement sur cette période</Text>
+          <Text style={styles.emptyText}>{t('savingsBalance.emptyPeriod')}</Text>
         ) : (
           contributions.map((c) => (
             <View key={c.uid} style={styles.contributionRow}>
@@ -153,6 +225,7 @@ export const SavingsBalanceScreen: React.FC = () => {
           style={[
             styles.fab,
             unlockReached ? styles.fabGreen : styles.fabOrange,
+            { bottom: 24 + insets.bottom },
           ]}
           onPress={() => {
             const nav = navigation as { navigate: (a: string, b: object) => void };
@@ -167,19 +240,29 @@ export const SavingsBalanceScreen: React.FC = () => {
           }}
         >
           <Text style={styles.fabText}>
-            {unlockReached ? 'Retirer mes fonds' : 'Verser maintenant'}
+            {unlockReached ? t('savingsBalance.fabWithdraw') : t('savingsBalance.fabContribute')}
           </Text>
         </Pressable>
       ) : null}
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#F7F8FA' },
   container: { flex: 1, backgroundColor: '#F7F8FA' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  errorTitle: { fontSize: 16, fontWeight: '700', color: '#1C1C1E', marginBottom: 8, textAlign: 'center' },
+  errorHint: { fontSize: 14, color: '#6B7280', marginBottom: 16, textAlign: 'center' },
+  retryBtn: {
+    backgroundColor: '#1A6B3C',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryBtnText: { color: '#FFFFFF', fontWeight: '700' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 100 },
+  scrollContent: { padding: 20 },
   balanceCard: {
     backgroundColor: '#1A6B3C',
     borderRadius: 16,
@@ -213,6 +296,12 @@ const styles = StyleSheet.create({
   },
   statLabel: { fontSize: 12, color: '#6B7280', marginBottom: 4 },
   statValue: { fontSize: 14, fontWeight: '700', color: '#1C1C1E' },
+  disclaimer: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 16,
+    lineHeight: 18,
+  },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1C1C1E', marginBottom: 12 },
   periodSelector: { height: 44, marginBottom: 16 },
   periodRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
@@ -244,7 +333,6 @@ const styles = StyleSheet.create({
   badgePending: { backgroundColor: '#F5A623' },
   fab: {
     position: 'absolute',
-    bottom: 24,
     right: 24,
     height: 52,
     paddingHorizontal: 24,

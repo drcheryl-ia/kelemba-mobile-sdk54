@@ -8,7 +8,7 @@ import { useDispatch } from 'react-redux';
 import { apiClient } from '@/api/apiClient';
 import { ENDPOINTS } from '@/api/endpoints';
 import { logger } from '@/utils/logger';
-import { decrementUnread } from '@/store/slices/notificationsSlice';
+import { decrementUnread, decrementUnreadBy } from '@/store/slices/notificationsSlice';
 import type {
   Notification,
   NotificationsPage,
@@ -71,6 +71,10 @@ export function useNotifications() {
           n != null && typeof n.createdAt === 'string'
       ) ?? [];
 
+  function readTimestamp(): string {
+    return new Date().toISOString();
+  }
+
   const markAsReadMutation = useMutation({
     mutationFn: (uid: string) =>
       apiClient.patch(ENDPOINTS.NOTIFICATIONS.MARK_READ(uid).url),
@@ -80,16 +84,28 @@ export function useNotifications() {
         pages: NotificationsPage[];
         pageParams: unknown[];
       }>(['notifications']);
+      let wasUnread = false;
       if (snapshot) {
+        for (const page of snapshot.pages) {
+          const hit = (page.items ?? []).find((n) => n != null && n.uid === uid);
+          if (hit != null && hit.readAt == null) {
+            wasUnread = true;
+            break;
+          }
+        }
         queryClient.setQueryData(['notifications'], {
           ...snapshot,
           pages: snapshot.pages.map((page) => ({
             ...page,
-            items: (page.items ?? []).filter((n) => n != null && n.uid !== uid),
+            items: (page.items ?? []).map((n) =>
+              n != null && n.uid === uid ? { ...n, readAt: readTimestamp() } : n
+            ),
           })),
         });
       }
-      dispatch(decrementUnread());
+      if (wasUnread) {
+        dispatch(decrementUnread());
+      }
       return { snapshot };
     },
     onError: (_err, _uid, context) => {
@@ -97,6 +113,58 @@ export function useNotifications() {
         queryClient.setQueryData(['notifications'], context.snapshot);
       }
       logger.error('markAsRead failed');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
+    },
+  });
+
+  const markManyAsReadMutation = useMutation({
+    mutationFn: async (uids: string[]) => {
+      await Promise.allSettled(
+        uids.map((uid) =>
+          apiClient.patch(ENDPOINTS.NOTIFICATIONS.MARK_READ(uid).url)
+        )
+      );
+    },
+    onMutate: async (uids) => {
+      const uidSet = new Set(uids);
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      const snapshot = queryClient.getQueryData<{
+        pages: NotificationsPage[];
+        pageParams: unknown[];
+      }>(['notifications']);
+      let unreadMarked = 0;
+      if (snapshot) {
+        for (const page of snapshot.pages) {
+          for (const n of page.items ?? []) {
+            if (n != null && uidSet.has(n.uid) && n.readAt == null) {
+              unreadMarked += 1;
+            }
+          }
+        }
+        const ts = readTimestamp();
+        queryClient.setQueryData(['notifications'], {
+          ...snapshot,
+          pages: snapshot.pages.map((page) => ({
+            ...page,
+            items: (page.items ?? []).map((n) =>
+              n != null && uidSet.has(n.uid) ? { ...n, readAt: ts } : n
+            ),
+          })),
+        });
+      }
+      if (unreadMarked > 0) {
+        dispatch(decrementUnreadBy(unreadMarked));
+      }
+      return { snapshot };
+    },
+    onError: (_err, _uids, context) => {
+      if (context?.snapshot) {
+        queryClient.setQueryData(['notifications'], context.snapshot);
+      }
+      logger.error('markManyAsRead failed');
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
@@ -125,6 +193,7 @@ export function useNotifications() {
     refetch,
     isFetchingNextPage,
     markAsReadMutation,
+    markManyAsReadMutation,
     unreadData,
   };
 }

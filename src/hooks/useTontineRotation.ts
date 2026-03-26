@@ -4,63 +4,8 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getTontineRotation } from '@/api/tontinesApi';
-import type {
-  RotationCycle,
-  CycleDisplayStatus,
-  TontineRotationResponse,
-} from '@/types/rotation';
-
-function computeDisplayStatus(
-  cycle: TontineRotationResponse['cycles'][0],
-  currentCycleNumber: number
-): CycleDisplayStatus {
-  // Source de vérité n°1 : le backend calcule déjà
-  // displayStatus correctement — l'utiliser directement
-  // si présent et valide.
-  const backendStatus = cycle.displayStatus as CycleDisplayStatus | undefined;
-  const VALID: CycleDisplayStatus[] = [
-    'VERSÉ',
-    'EN_COURS',
-    'PROCHAIN',
-    'À_VENIR',
-    'RETARDÉ',
-  ];
-  if (backendStatus && VALID.includes(backendStatus)) {
-    return backendStatus;
-  }
-
-  // Fallback client (si le backend ne renvoie pas displayStatus)
-  // Règle : vérifier les statuts terminaux EN PREMIER
-  // pour éviter qu'un ancien delayedByMemberUids ne prenne le dessus.
-
-  if (cycle.status === 'COMPLETED' || cycle.status === 'PAYOUT_COMPLETED') {
-    return 'VERSÉ';
-  }
-
-  if (cycle.status === 'SKIPPED') {
-    return 'À_VENIR';
-  }
-
-  // hasDelay uniquement pour les cycles encore en cours
-  const delayed = cycle.delayedByMemberUids ?? [];
-  const hasActiveDelay =
-    delayed.length > 0 &&
-    (cycle.status === 'ACTIVE' ||
-      cycle.status === 'PAYOUT_IN_PROGRESS' ||
-      cycle.status === 'PENDING');
-  if (hasActiveDelay) return 'RETARDÉ';
-
-  if (cycle.status === 'ACTIVE' || cycle.status === 'PAYOUT_IN_PROGRESS') {
-    return 'EN_COURS';
-  }
-
-  if (cycle.status === 'PENDING') {
-    if (cycle.cycleNumber === currentCycleNumber + 1) return 'PROCHAIN';
-    return 'À_VENIR';
-  }
-
-  return 'À_VENIR';
-}
+import type { RotationCycle, TontineRotationResponse } from '@/types/rotation';
+import { computeCycleDisplayStatus } from '@/utils/rotationCycleDisplayStatus';
 
 function computeCollectionProgress(collected: number, total: number): number {
   if (total <= 0) return 0;
@@ -71,7 +16,7 @@ function mapToRotationCycle(
   raw: TontineRotationResponse['cycles'][0],
   currentCycleNumber: number
 ): RotationCycle {
-  const displayStatus = computeDisplayStatus(raw, currentCycleNumber);
+  const displayStatus = computeCycleDisplayStatus(raw, currentCycleNumber);
   const collectionProgress = computeCollectionProgress(
     raw.collectedAmount,
     raw.totalExpected
@@ -121,7 +66,17 @@ export interface UseTontineRotationReturn {
 
 const GC_TIME = 24 * 60 * 60 * 1000;
 
-export function useTontineRotation(tontineUid: string): UseTontineRotationReturn {
+export type UseTontineRotationOptions = {
+  /** Par défaut : true. Mettre false pour ne pas appeler l’API (ex. tontine brouillon). */
+  enabled?: boolean;
+};
+
+export function useTontineRotation(
+  tontineUid: string,
+  options?: UseTontineRotationOptions
+): UseTontineRotationReturn {
+  const queryEnabled = (options?.enabled ?? true) && !!tontineUid;
+
   const {
     data,
     isLoading,
@@ -132,7 +87,7 @@ export function useTontineRotation(tontineUid: string): UseTontineRotationReturn
   } = useQuery({
     queryKey: ['tontineRotation', tontineUid],
     queryFn: () => getTontineRotation(tontineUid),
-    enabled: !!tontineUid,
+    enabled: queryEnabled,
     staleTime: 5 * 60_000,
     gcTime: GC_TIME,
     networkMode: 'offlineFirst',

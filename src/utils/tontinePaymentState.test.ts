@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { TontineListItem } from '@/types/tontine';
 import {
   deriveTontinePaymentUiState,
@@ -106,6 +106,21 @@ describe('deriveTontinePaymentUiState', () => {
 
     expect(s.badgeLabel).toBe('Paiement en cours');
     expect(s.needsPaymentAttention).toBe(false);
+  });
+
+  it('EPARGNE : versement dû mais pas de rappel cotisation type rotatif', () => {
+    const now = new Date('2025-06-15T12:00:00');
+    const s = deriveTontinePaymentUiState(
+      baseTontine({
+        type: 'EPARGNE',
+        hasPaymentDue: true,
+        nextPaymentDate: '2025-06-20',
+        currentCycle: null,
+      }),
+      now
+    );
+    expect(s.needsPaymentAttention).toBe(true);
+    expect(s.eligibleForPaymentReminder).toBe(false);
   });
 });
 

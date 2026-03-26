@@ -10,11 +10,12 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '@/navigation/types';
 import { useSavingsDashboard } from '@/hooks/useSavings';
 import { formatFCFA, daysUntil } from '@/utils/savings.utils';
-import { SavingsProgressBar, SavingsMemberRow } from '@/components/savings';
+import { SavingsProgressBar, SavingsMemberRow, SavingsScreenHeader } from '@/components/savings';
 import { useSelector } from 'react-redux';
 import type { RootState } from '@/store/store';
 import { selectUserUid } from '@/store/authSlice';
@@ -22,6 +23,7 @@ import { selectUserUid } from '@/store/authSlice';
 type Route = RouteProp<RootStackParamList, 'SavingsDashboardScreen'>;
 
 export const SavingsDashboardScreen: React.FC = () => {
+  const navigation = useNavigation();
   const route = useRoute<Route>();
   const { tontineUid } = route.params;
   const currentUserUid = useSelector(selectUserUid) ?? '';
@@ -30,24 +32,38 @@ export const SavingsDashboardScreen: React.FC = () => {
 
   if (isLoading || !dashboard) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1A6B3C" />
-      </View>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title="…"
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#1A6B3C" />
+        </View>
+      </SafeAreaView>
     );
   }
 
   const config = dashboard.savingsConfig;
   const currentPeriod = dashboard.currentPeriod;
-  const targetGlobal = config.targetAmountGlobal;
+  const targetGlobal = config?.targetAmountGlobal;
   const currentAmount =
     targetGlobal != null && dashboard.globalProgressPercent != null
       ? (dashboard.globalProgressPercent / 100) * targetGlobal
       : 0;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SavingsScreenHeader
+        title={dashboard.tontine.name}
+        subtitle="Vue collective"
+        onBack={() => navigation.goBack()}
+        titleNumberOfLines={2}
+      />
       <FlatList
-        data={dashboard.members}
+        style={styles.list}
+        data={dashboard.members ?? []}
         keyExtractor={(m) => m.uid}
         contentContainerStyle={styles.listContent}
         refreshControl={
@@ -92,18 +108,19 @@ export const SavingsDashboardScreen: React.FC = () => {
         renderItem={({ item }) => (
           <SavingsMemberRow
             member={item}
-            isPrivate={config.isPrivate}
+            isPrivate={config?.isPrivate ?? false}
             currentUserUid={currentUserUid}
             periodStatus={currentPeriod?.status}
           />
         )}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F8FA' },
+  safe: { flex: 1, backgroundColor: '#F7F8FA' },
+  list: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: 20, paddingBottom: 40 },
   header: { marginBottom: 20 },

@@ -4,7 +4,12 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { formatFcfa } from '@/utils/formatters';
+import {
+  paymentHistoryPrimaryTotal,
+  paymentHistoryShowAmountBreakdown,
+} from '@/utils/paymentAmountDisplay';
 import type { PaymentHistoryListItemVm } from '../paymentViewModels';
 
 const GREEN = '#1A6B3C';
@@ -93,6 +98,7 @@ export const PaymentHistoryCard: React.FC<Props> = ({
   primaryActionLabel,
   onPressPrimaryAction,
 }) => {
+  const { t } = useTranslation();
   const sv = useMemo(() => statusVisual(item.status), [item.status]);
   const dateLine = item.paidAt ?? item.createdAt ?? null;
   const cashHint = item.cashStateLabel;
@@ -109,6 +115,9 @@ export const PaymentHistoryCard: React.FC<Props> = ({
     item.penalty === 0 &&
     item.status === 'COMPLETED' &&
     !(item.method === 'CASH' && (item.cashAutoValidated || selfPay));
+
+  const primaryTotal = paymentHistoryPrimaryTotal(item);
+  const showAmountBreakdown = paymentHistoryShowAmountBreakdown(item);
 
   return (
     <View style={[styles.card, item.isActionRequired && styles.cardPriority]}>
@@ -129,7 +138,7 @@ export const PaymentHistoryCard: React.FC<Props> = ({
       </View>
 
       <Text style={styles.amount} accessibilityRole="text">
-        {formatFcfa(item.amount)}
+        {formatFcfa(primaryTotal)}
       </Text>
 
       <Text style={styles.meta}>
@@ -154,8 +163,17 @@ export const PaymentHistoryCard: React.FC<Props> = ({
 
       <Text style={styles.statusMessage}>{item.statusMessage}</Text>
 
-      {item.penalty > 0 ? (
-        <Text style={styles.penaltyLine}>Penalite : {formatFcfa(item.penalty)}</Text>
+      {showAmountBreakdown ? (
+        <View style={styles.breakdownBlock}>
+          <Text style={styles.detailLine}>
+            {t('paymentsDisplay.partLine', { value: formatFcfa(item.amount) })}
+          </Text>
+          {item.penalty > 0 ? (
+            <Text style={styles.detailPenalty}>
+              {t('paymentsDisplay.penaltyLine', { value: formatFcfa(item.penalty) })}
+            </Text>
+          ) : null}
+        </View>
       ) : àTemps ? (
         <Text style={styles.okLine}>A temps</Text>
       ) : null}
@@ -279,11 +297,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 6,
   },
-  penaltyLine: {
+  breakdownBlock: {
+    marginBottom: 4,
+    gap: 2,
+  },
+  detailLine: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  detailPenalty: {
     fontSize: 13,
     color: '#D0021B',
     fontWeight: '600',
-    marginBottom: 4,
   },
   okLine: {
     fontSize: 13,

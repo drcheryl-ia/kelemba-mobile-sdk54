@@ -1,9 +1,10 @@
 /**
  * Accueil — dashboard membre / organisateur, données API réelles.
  */
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { View, ScrollView, RefreshControl, StyleSheet, Text } from 'react-native';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { View, ScrollView, RefreshControl, StyleSheet, Text, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { MainTabParamList } from '@/navigation/types';
 import { useDashboard } from '@/hooks/useDashboard';
@@ -20,8 +21,10 @@ import {
 import { isMembershipPending, mergeDisplayableTontines } from '@/utils/tontineMerge';
 import { deriveTontinePaymentUiState } from '@/utils/tontinePaymentState';
 import { buildDashboardReminderCards } from '@/components/dashboard/paymentReminderBanner.helpers';
+import { parseApiError, getErrorMessageForCode } from '@/api/errors';
 import { navigationRef } from '@/navigation/navigationRef';
 import type { TontineListItem } from '@/types/tontine';
+import type { TontineRotationResponse } from '@/types/rotation';
 import {
   HomeHeader,
   HomeHeroCard,
@@ -30,15 +33,27 @@ import {
   HomeNotificationsPreview,
 } from '@/components/dashboard/home';
 import type { HomeQuickActionDef } from '@/components/dashboard/home';
-import { PaymentReminderBanner } from '@/components/dashboard/PaymentReminderBanner';
-import { TontinesList } from '@/components/dashboard/TontinesList';
+import { useTranslation } from 'react-i18next';
+import { resolveOrganizerPayoutNavigationData } from '@/utils/organizerPayoutNavigation';
+import { logger } from '@/utils/logger';
+import {
+  HomePayoutScheduleSection,
+  HOME_PAYOUT_SCHEDULE_PREVIEW_LIMIT,
+} from '@/components/dashboard/HomePayoutScheduleSection';
+import { getTontineRotation } from '@/api/tontinesApi';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { formatFcfa } from '@/utils/formatters';
 import { withNextPaymentPenaltyWaivedForPendingCashValidation } from '@/utils/nextPaymentPenaltyWaive';
+import { resolveDashboardOrganizerPayoutReminder } from '@/utils/cyclePayoutEligibility';
+import { aggregateSavingsHomeSummary } from '@/utils/homeSavingsRowViewModel';
+import { HomeSavingsSummaryCard } from '@/components/dashboard/HomeSavingsSummaryCard';
 
 type Props = BottomTabScreenProps<MainTabParamList, 'Dashboard'>;
 
 export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
+  const { t, i18n } = useTranslation();
+  const payoutRequestLockRef = useRef(false);
+  const queryClient = useQueryClient();
   const hasOrganizerRole = useHasOrganizerRoleInTontines();
   const cashPendingBadge = useOrganizerCashPendingBadgeCount();
   const { isLoading: organizerCashLoading } = useOrganizerCashPendingActions({
@@ -119,21 +134,6 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     clearError,
   ]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    clearError();
-    try {
-      await Promise.all([
-        refetchAll(),
-        refetchNextPayment(),
-        refetchTontines(),
-        refetchNotifs(),
-      ]);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refetchAll, refetchNextPayment, refetchTontines, refetchNotifs, clearError]);
-
   const displayedTontines = useMemo(
     () => mergeDisplayableTontines(myTontines ?? [], invitations),
     [myTontines, invitations]
@@ -148,6 +148,69 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       ),
     [displayedTontines]
   );
+
+  const homePayoutRotationUids = useMemo(() => {
+    const preview = officialTontines.slice(0, HOME_PAYOUT_SCHEDULE_PREVIEW_LIMIT);
+    return Array.from(
+      new Set(preview.filter((t) => t.type !== 'EPARGNE').map((t) => t.uid))
+    );
+  }, [officialTontines]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    clearError();
+    try {
+      await Promise.all([
+        refetchAll(),
+        refetchNextPayment(),
+        refetchTontines(),
+        refetchNotifs(),
+        ...homePayoutRotationUids.map((uid) =>
+          queryClient.invalidateQueries({ queryKey: ['tontineRotation', uid] })
+        ),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [
+    refetchAll,
+    refetchNextPayment,
+    refetchTontines,
+    refetchNotifs,
+    clearError,
+    queryClient,
+    homePayoutRotationUids,
+  ]);
+
+  const homePayoutRotationQueries = useQueries({
+    queries: homePayoutRotationUids.map((uid) => ({
+      queryKey: ['tontineRotation', uid] as const,
+      queryFn: () => getTontineRotation(uid),
+      enabled: homePayoutRotationUids.length > 0 && Boolean(uid),
+      staleTime: 5 * 60_000,
+      gcTime: 24 * 60 * 60 * 1000,
+      networkMode: 'offlineFirst' as const,
+      refetchOnWindowFocus: false,
+      retry: 2,
+    })),
+  });
+
+  const payoutRotationByUid = useMemo(() => {
+    const m: Record<
+      string,
+      { data?: TontineRotationResponse; isLoading: boolean; isError: boolean }
+    > = {};
+    homePayoutRotationUids.forEach((uid, i) => {
+      const q = homePayoutRotationQueries[i];
+      if (!q) return;
+      m[uid] = {
+        data: q.data,
+        isLoading: q.isPending,
+        isError: q.isError,
+      };
+    });
+    return m;
+  }, [homePayoutRotationUids, homePayoutRotationQueries]);
 
   const totalBalance = officialTontines.reduce(
     (acc: number, t: TontineListItem) => acc + t.amountPerShare,
@@ -172,12 +235,42 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     return n;
   }, [officialTontines]);
 
+  /** Versement cagnotte (organisateur) — même source que les cartes liste, sans requête supplémentaire. */
+  const organizerPayoutTontines = useMemo(() => {
+    if (!hasOrganizerRole) return [];
+    return officialTontines.filter(
+      (t) => resolveDashboardOrganizerPayoutReminder(t) != null
+    );
+  }, [hasOrganizerRole, officialTontines]);
+
   const reminders = useMemo(
-    () => buildDashboardReminderCards(nextPaymentForUi, cashHistoryItems),
-    [cashHistoryItems, nextPaymentForUi]
+    () =>
+      buildDashboardReminderCards(nextPaymentForUi, cashHistoryItems, {
+        organizerPayoutTontines,
+        savingsTontines: officialTontines,
+        limit: 10,
+      }),
+    [cashHistoryItems, nextPaymentForUi, organizerPayoutTontines, officialTontines]
   );
 
-  const primaryReminder = reminders[0] ?? null;
+  const savingsHomeAggregate = useMemo(
+    () => aggregateSavingsHomeSummary(officialTontines),
+    [officialTontines]
+  );
+
+  const heroLoading = useMemo(() => {
+    const dataLoading = nextPaymentLoading || cashHistoryFetching;
+    if (hasOrganizerRole && reminders.length === 0) {
+      return dataLoading || organizerCashLoading;
+    }
+    return dataLoading;
+  }, [
+    hasOrganizerRole,
+    reminders.length,
+    nextPaymentLoading,
+    cashHistoryFetching,
+    organizerCashLoading,
+  ]);
 
   const pendingPaymentsCount = payments.data?.data?.length ?? 0;
   const pendingActionsCount = cashPendingBadge + pendingPaymentsCount;
@@ -195,20 +288,107 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     return `Dans ${joursRestants} j · ${formatFcfa(nextPaymentForUi.totalDue)}`;
   }, [nextPaymentForUi, joursRestants]);
 
-  const onMemberHeroPrimary = useCallback(() => {
-    if (primaryReminder?.kind === 'pendingValidation') {
+  const navigateToTontinePayout = useCallback((item: TontineListItem) => {
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('TontineDetails', {
+        tontineUid: item.uid,
+        isCreator: item.isCreator ?? item.membershipRole === 'CREATOR',
+      });
+    }
+  }, []);
+
+  const handleOrganizerPayoutPress = useCallback(
+    async (item: TontineListItem) => {
+      if (payoutRequestLockRef.current) return;
+      if (item.currentCycleUid == null || item.currentCycle == null) {
+        navigateToTontinePayout(item);
+        return;
+      }
+      payoutRequestLockRef.current = true;
+      try {
+        const result = await resolveOrganizerPayoutNavigationData(item.currentCycleUid, {
+          kind: 'list',
+          item,
+        });
+        if (!result.ok) {
+          navigateToTontinePayout(item);
+          if (result.reason === 'not_payable') {
+            Alert.alert(
+              t('tontineList.payoutUnavailableTitle', 'Versement indisponible'),
+              t(
+                'tontineList.payoutUnavailableMessage',
+                "Le versement n'est pas possible pour l'instant. Consultez le détail de la tontine pour l'état du cycle."
+              )
+            );
+          }
+          return;
+        }
+        if (navigationRef.isReady()) {
+          navigationRef.navigate('CyclePayoutScreen', result.payload);
+        }
+      } catch (error: unknown) {
+        const apiError = parseApiError(error);
+        Alert.alert(
+          t('common.error', 'Erreur'),
+          getErrorMessageForCode(apiError, i18n.language === 'sango' ? 'sango' : 'fr')
+        );
+      } finally {
+        payoutRequestLockRef.current = false;
+      }
+    },
+    [i18n.language, navigateToTontinePayout, t]
+  );
+
+  const handleDashboardHeroPrimary = useCallback(() => {
+    const primary = reminders[0] ?? null;
+    if (primary?.kind === 'pendingValidation') {
+      logger.info('[DashboardHero] Pending validation pressed', {
+        tontineUid: primary.tontineUid,
+      });
       navigation.navigate('Payments');
       return;
     }
-    if (primaryReminder?.kind === 'nextPayment' && primaryReminder.cycleUid) {
+    if (primary?.kind === 'payoutPot') {
+      const src = primary.organizerPayoutSource;
+      if (!src) return;
+      if (primary.payoutPhase === 'in_progress') {
+        logger.info('[DashboardHero] Payout in progress — tontine', {
+          tontineUid: primary.tontineUid,
+        });
+        navigateToTontinePayout(src);
+        return;
+      }
+      logger.info('[DashboardHero] Payer la cagnotte pressed', {
+        tontineUid: primary.tontineUid,
+      });
+      void handleOrganizerPayoutPress(src);
+      return;
+    }
+    if (primary?.kind === 'savingsPeriod' && navigationRef.isReady()) {
+      logger.info('[DashboardHero] Savings reminder pressed', {
+        tontineUid: primary.tontineUid,
+        periodUid: primary.periodUid,
+      });
+      if (primary.periodUid) {
+        navigationRef.navigate('SavingsContributeScreen', {
+          tontineUid: primary.tontineUid,
+          periodUid: primary.periodUid,
+        });
+      } else {
+        navigationRef.navigate('SavingsDetailScreen', { tontineUid: primary.tontineUid });
+      }
+      return;
+    }
+    if (primary?.kind === 'nextPayment' && primary.cycleUid) {
+      logger.info('[DashboardHero] Cotiser pressed', { tontineUid: primary.tontineUid });
       if (navigationRef.isReady()) {
         navigationRef.navigate('PaymentScreen', {
-          cycleUid: primaryReminder.cycleUid,
-          tontineUid: primaryReminder.tontineUid,
-          tontineName: primaryReminder.tontineName,
-          baseAmount: nextPaymentForUi?.amountDue ?? primaryReminder.amount,
+          cycleUid: primary.cycleUid,
+          tontineUid: primary.tontineUid,
+          tontineName: primary.tontineName,
+          baseAmount: nextPaymentForUi?.amountDue ?? primary.amount,
           penaltyAmount: nextPaymentForUi?.penaltyAmount ?? 0,
-          cycleNumber: primaryReminder.cycleNumber ?? nextPaymentForUi?.cycleNumber ?? 1,
+          cycleNumber: primary.cycleNumber ?? nextPaymentForUi?.cycleNumber ?? 1,
         });
       }
       return;
@@ -223,7 +403,13 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         cycleNumber: nextPaymentForUi.cycleNumber,
       });
     }
-  }, [primaryReminder, nextPaymentForUi, navigation]);
+  }, [
+    reminders,
+    nextPaymentForUi,
+    navigation,
+    navigateToTontinePayout,
+    handleOrganizerPayoutPress,
+  ]);
 
   const onOrganizerTreat = useCallback(() => {
     navigation.navigate('Payments', { initialSegment: 'cashValidations' });
@@ -315,7 +501,9 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         pendingActionsCount={pendingActionsCount}
         isOrganizerContext={hasOrganizerRole}
         unreadCount={unreadNotifications}
-        onNotificationsPress={() => navigation.navigate('History')}
+        onNotificationsPress={() => {
+          if (navigationRef.isReady()) navigationRef.navigate('NotificationsScreen');
+        }}
       />
 
       <ScrollView
@@ -343,25 +531,24 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         ) : null}
 
-        {hasOrganizerRole ? (
-          <HomeHeroCard
-            variant="organizer"
-            cashPendingCount={cashPendingBadge}
-            overdueMembersHint={overdueOrganizerTontines}
-            isLoading={organizerCashLoading}
-            onPressTreat={onOrganizerTreat}
-            onPressDashboard={onOrganizerDashboard}
-          />
-        ) : (
-          <HomeHeroCard
-            variant="member"
-            primaryReminder={primaryReminder}
-            nextPayment={nextPaymentForUi}
-            isLoading={nextPaymentLoading || cashHistoryFetching}
-            onPressPrimary={onMemberHeroPrimary}
-            onPressUpToDate={() => navigation.navigate('Tontines')}
-          />
-        )}
+        <HomeHeroCard
+          reminders={reminders}
+          nextPayment={nextPaymentForUi}
+          isLoading={heroLoading}
+          nextPaymentAmountDue={nextPaymentForUi?.amountDue ?? null}
+          nextPaymentPenaltyAmount={nextPaymentForUi?.penaltyAmount ?? null}
+          organizerFallback={
+            hasOrganizerRole && reminders.length === 0
+              ? {
+                  cashPendingCount: cashPendingBadge,
+                  overdueMembersHint: overdueOrganizerTontines,
+                }
+              : undefined
+          }
+          onPressPrimary={handleDashboardHeroPrimary}
+          onPressUpToDate={onOrganizerDashboard}
+          onOrganizerTreat={onOrganizerTreat}
+        />
 
         <View style={styles.sectionGap}>
           <HomeKpiRow
@@ -380,21 +567,20 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           />
         </View>
 
+        <HomeSavingsSummaryCard aggregate={savingsHomeAggregate} />
+
         <View style={styles.quickActionsSection}>
           <HomeQuickActions
             actions={hasOrganizerRole ? organizerQuickActions : memberQuickActions}
           />
         </View>
 
-        <View style={styles.reminderBannerSection}>
-          <PaymentReminderBanner skipFirst={!hasOrganizerRole && primaryReminder != null} />
-        </View>
-
         <View style={styles.tontinesSection}>
-          <TontinesList
+          <HomePayoutScheduleSection
             tontines={officialTontines}
             isLoading={tontinesLoading}
-            onTontinePress={(tontine) => {
+            payoutRotationByUid={payoutRotationByUid}
+            onPressTontine={(tontine) => {
               if (isMembershipPending(tontine)) return;
               if (navigationRef.isReady()) {
                 if (tontine.type === 'EPARGNE') {
@@ -405,7 +591,6 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               }
             }}
             onSeeAllPress={() => navigation.navigate('Tontines')}
-            showDashboardMeta
           />
         </View>
 
@@ -414,8 +599,12 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
             items={allNotifications}
             isLoading={notifLoading}
             isError={notifError}
-            onSeeAll={() => navigation.navigate('History')}
-            onOpen={() => navigation.navigate('History')}
+            onSeeAll={() => {
+              if (navigationRef.isReady()) navigationRef.navigate('NotificationsScreen');
+            }}
+            onOpen={() => {
+              if (navigationRef.isReady()) navigationRef.navigate('NotificationsScreen');
+            }}
           />
         </View>
       </ScrollView>
@@ -455,17 +644,12 @@ const styles = StyleSheet.create({
   sectionGap: {
     marginTop: 4,
   },
-  /** Rapproche la suite (rappels + tontines) du bloc Actions rapides. */
+  /** Espace sous le bloc Actions rapides avant le planning de passage. */
   quickActionsSection: {
     marginTop: 4,
-    marginBottom: -12,
+    marginBottom: 2,
   },
-  /** Rappels — marge haute minimale (le gap du ScrollView suffit en partie). */
-  reminderBannerSection: {
-    marginTop: 4,
-  },
-  /** Réduit l’intervalle avant « Mes tontines actives » (sous rappels ou espace vide). */
   tontinesSection: {
-    marginTop: -8,
+    marginTop: 0,
   },
 });

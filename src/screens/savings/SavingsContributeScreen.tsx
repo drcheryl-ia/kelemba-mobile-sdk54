@@ -1,7 +1,7 @@
 /**
  * Formulaire de versement pour une période donnée.
  */
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,28 +12,30 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import type { RootStackParamList } from '@/navigation/types';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import type { Resolver } from 'react-hook-form';
 import { z } from 'zod';
 import { useSavingsDashboard, useContributeSavings } from '@/hooks/useSavings';
 import { formatFCFA } from '@/utils/savings.utils';
-import { AmountInput } from '@/components/savings';
+import { AmountInput, SavingsScreenHeader } from '@/components/savings';
 import { parseApiError } from '@/api/errors/errorHandler';
 
 type Route = RouteProp<RootStackParamList, 'SavingsContributeScreen'>;
 
-const contributeSchema = z.object({
-  amount: z.number().int().min(500),
-  method: z.enum(['ORANGE_MONEY', 'TELECEL_MONEY']),
-});
-
-type FormData = z.infer<typeof contributeSchema>;
+type FormData = {
+  amount: number;
+  method: 'ORANGE_MONEY' | 'TELECEL_MONEY';
+};
 
 export const SavingsContributeScreen: React.FC = () => {
   const route = useRoute<Route>();
   const navigation = useNavigation();
+  const { t } = useTranslation();
   const { tontineUid, periodUid } = route.params;
   const idempotencyKeyRef = useRef<string | null>(null);
 
@@ -44,6 +46,26 @@ export const SavingsContributeScreen: React.FC = () => {
   const currentPeriod = dashboard?.currentPeriod;
   const minAmount = config?.minimumContribution ?? 500;
   const bonusRate = config?.bonusRatePercent ?? 0;
+
+  const contributeSchema = useMemo(
+    () =>
+      z.object({
+        amount: z
+          .number()
+          .int()
+          .min(
+            minAmount,
+            t('savingsContribute.minError', { amount: formatFCFA(minAmount) })
+          ),
+        method: z.enum(['ORANGE_MONEY', 'TELECEL_MONEY']),
+      }),
+    [minAmount, t]
+  );
+
+  const resolver = useMemo<Resolver<FormData>>(
+    () => zodResolver(contributeSchema),
+    [contributeSchema]
+  );
 
   const getOrCreateIdempotencyKey = useCallback(() => {
     if (!idempotencyKeyRef.current) {
@@ -57,14 +79,20 @@ export const SavingsContributeScreen: React.FC = () => {
     handleSubmit,
     watch,
     setError,
+    reset,
+    getValues,
     formState: { errors },
   } = useForm<FormData>({
-    resolver: zodResolver(contributeSchema),
+    resolver,
     defaultValues: {
       amount: minAmount,
       method: 'ORANGE_MONEY',
     },
   });
+
+  useEffect(() => {
+    reset({ amount: minAmount, method: getValues('method') });
+  }, [minAmount, reset, getValues]);
 
   const amount = watch('amount');
   const method = watch('method');
@@ -84,16 +112,16 @@ export const SavingsContributeScreen: React.FC = () => {
         'SavingsBalanceScreen',
         { tontineUid }
       );
-      Alert.alert('Succès', 'Votre versement a été enregistré.');
+      Alert.alert(t('savingsContribute.successTitle'), t('savingsContribute.successMessage'));
     } catch (err: unknown) {
       const apiErr = parseApiError(err);
       if (apiErr.httpStatus === 409) {
         Alert.alert(
-          'Déjà traité',
-          'Ce versement a déjà été traité.',
+          t('savingsContribute.errorDuplicateTitle'),
+          t('savingsContribute.errorDuplicateMessage'),
           [
             {
-              text: 'OK',
+              text: t('savingsContribute.ok'),
               onPress: () =>
                 (navigation as { navigate: (a: string, b: object) => void }).navigate(
                   'SavingsBalanceScreen',
@@ -105,36 +133,54 @@ export const SavingsContributeScreen: React.FC = () => {
       } else if (apiErr.httpStatus === 400) {
         setError('amount', { message: apiErr.message });
       } else {
-        setError('amount', { message: 'Erreur réseau. Réessayez.' });
+        setError('amount', { message: t('savingsContribute.errorNetwork') });
       }
     }
   };
 
   if (isLoading || !dashboard) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1A6B3C" />
-      </View>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title={t('savingsContribute.loadingTitle')}
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#1A6B3C" />
+        </View>
+      </SafeAreaView>
     );
   }
 
   const periodNum = currentPeriod?.periodNumber ?? '?';
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SavingsScreenHeader
+        title={dashboard.tontine.name}
+        subtitle={t('savingsContribute.subtitle')}
+        onBack={() => navigation.goBack()}
+        titleNumberOfLines={2}
+      />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
       <View style={styles.contextCard}>
-        <Text style={styles.contextTitle}>Période {periodNum}</Text>
+        <Text style={styles.contextTitle}>
+          {t('savingsContribute.contextTitle', { n: String(periodNum) })}
+        </Text>
         {currentPeriod && (
           <Text style={styles.contextText}>
             {new Date(currentPeriod.openDate).toLocaleDateString('fr-FR')} —{' '}
             {new Date(currentPeriod.closeDate).toLocaleDateString('fr-FR')}
           </Text>
         )}
-        <Text style={styles.contextMin}>Minimum requis : {formatFCFA(minAmount)}</Text>
+        <Text style={styles.contextMin}>
+          {t('savingsContribute.minimumLabel', { amount: formatFCFA(minAmount) })}
+        </Text>
       </View>
 
       <Controller
@@ -145,7 +191,7 @@ export const SavingsContributeScreen: React.FC = () => {
             value={String(value)}
             onChange={(t) => onChange(parseInt(t.replace(/\D/g, ''), 10) || 0)}
             minimumAmount={minAmount}
-            label="Montant (FCFA)"
+            label={t('savingsContribute.amountLabel')}
           />
         )}
       />
@@ -153,12 +199,14 @@ export const SavingsContributeScreen: React.FC = () => {
 
       {bonusRate > 0 && amount >= minAmount && (
         <Text style={styles.bonusHint}>
-          Dont {formatFCFA(bonusDeducted)} → fonds bonus commun | {formatFCFA(netAmount)} → votre
-          épargne
+          {t('savingsContribute.bonusSplitHint', {
+            bonus: formatFCFA(bonusDeducted),
+            net: formatFCFA(netAmount),
+          })}
         </Text>
       )}
 
-      <Text style={styles.label}>Méthode de paiement</Text>
+      <Text style={styles.label}>{t('savingsContribute.paymentMethod')}</Text>
       <View style={styles.methodRow}>
         <Controller
           control={control}
@@ -193,15 +241,19 @@ export const SavingsContributeScreen: React.FC = () => {
         {contributeMutation.isPending ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Text style={styles.ctaText}>Verser {formatFCFA(amount)}</Text>
+          <Text style={styles.ctaText}>
+            {t('savingsContribute.cta', { amount: formatFCFA(amount) })}
+          </Text>
         )}
       </Pressable>
     </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F8FA' },
+  safe: { flex: 1, backgroundColor: '#F7F8FA' },
+  scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   contextCard: {

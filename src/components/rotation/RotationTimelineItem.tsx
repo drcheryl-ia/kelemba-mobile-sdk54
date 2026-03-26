@@ -173,7 +173,7 @@ export const RotationTimelineItem: React.FC<RotationTimelineItemProps> = ({
               isDarkCard ? styles.textWhiteMuted : styles.textMuted,
             ]}
           >
-            {t('rotation.netPayoutLabel', 'Bénéfice net (pot − votre cotisation)')} :{' '}
+            {t('rotation.netPayoutLabel', 'Montant à verser')} :{' '}
             {cycle.beneficiaryNetAmount.toLocaleString('fr-FR')} FCFA
           </Text>
         )}

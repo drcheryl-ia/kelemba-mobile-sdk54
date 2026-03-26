@@ -10,6 +10,7 @@ import { getPaymentHistory } from '@/api/paymentApi';
 import { selectUserUid } from '@/store/authSlice';
 import type { RootState } from '@/store/store';
 import type { PaymentHistoryItem } from '@/types/tontine';
+import { paymentHistoryPrimaryTotal } from '@/utils/paymentAmountDisplay';
 
 const PAGE_SIZE = 20;
 const STALE_TIME = 60_000;
@@ -145,7 +146,8 @@ export function useContributionHistory(
     if (sortField !== 'amount') return rawItems;
     const copy = [...rawItems];
     copy.sort((a, b) => {
-      const cmp = a.amount - b.amount;
+      const cmp =
+        paymentHistoryPrimaryTotal(a) - paymentHistoryPrimaryTotal(b);
       return sortOrder === 'asc' ? cmp : -cmp;
     });
     return copy;

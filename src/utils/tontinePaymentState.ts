@@ -311,6 +311,9 @@ export function deriveTontinePaymentUiState(
     (tontine.status === 'ACTIVE' || tontine.status === 'BETWEEN_ROUNDS') &&
     tontine.membershipStatus !== 'PENDING';
 
+  /** Rappels cotisation dashboard : réservés aux tontines rotatives */
+  const reminderEligible = tontine.type !== 'EPARGNE';
+
   if (!eligibleBase) {
     return unknownState(false);
   }
@@ -327,30 +330,32 @@ export function deriveTontinePaymentUiState(
         daysOverdue: null,
         badgeLabel: '⏳ À payer',
         badgeTone: 'warning',
-        eligibleForPaymentReminder: true,
+        eligibleForPaymentReminder: reminderEligible,
         needsPaymentAttention: true,
       };
     }
     if ((payment.daysLeft ?? 0) < 0) {
-      return overdueState(payment.scheduledDate, payment.daysLeft ?? 0, true);
+      return overdueState(payment.scheduledDate, payment.daysLeft ?? 0, reminderEligible);
     }
-    if (payment.daysLeft === 0) return dueTodayState(payment.scheduledDate, true);
-    return dueSoonState(payment.scheduledDate, payment.daysLeft ?? 0, true);
+    if (payment.daysLeft === 0) {
+      return dueTodayState(payment.scheduledDate, reminderEligible);
+    }
+    return dueSoonState(payment.scheduledDate, payment.daysLeft ?? 0, reminderEligible);
   }
 
   if (payment.dueState === 'PROCESSING') {
-    return processingState(payment.scheduledDate, payment.daysLeft, true);
+    return processingState(payment.scheduledDate, payment.daysLeft, reminderEligible);
   }
 
   if (payment.dueState === 'SETTLED') {
-    return upToDateState(payment.scheduledDate, payment.daysLeft, true);
+    return upToDateState(payment.scheduledDate, payment.daysLeft, reminderEligible);
   }
 
   if (payment.scheduledDate) {
-    return scheduledOnlyState(payment.scheduledDate, payment.daysLeft, true);
+    return scheduledOnlyState(payment.scheduledDate, payment.daysLeft, reminderEligible);
   }
 
-  return unknownState(true);
+  return unknownState(reminderEligible);
 }
 
 export type TontineListDueDateHeadingKey = 'currentDue' | 'nextDue' | 'none';

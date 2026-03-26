@@ -3,7 +3,7 @@
  */
 import type { TontineFrequency } from '@/api/types/api.types';
 import type { PaymentStatus } from '@/types/domain.types';
-import type { TontineType } from '@/types/savings.types';
+import type { SavingsMemberStatus, TontineType } from '@/types/savings.types';
 
 export type { TontineFrequency };
 
@@ -174,6 +174,43 @@ export interface TontineListItem {
   invitationOrigin?: InvitationOrigin;
   /** Flag UI : adhésion non finalisée, carte non cliquable */
   isPending?: boolean;
+  /** UUID du cycle courant si l’API liste renvoie `currentCycle` comme objet */
+  currentCycleUid?: string | null;
+  /** Progression collecte 0–1 (cycle embarqué liste) — `null` si inconnu après normalisation */
+  collectionProgress?: number | null;
+  /** Statut du cycle courant si fourni dans la liste */
+  currentCycleStatus?: CycleStatus | null;
+  /** Montants cycle courant (liste) — pour progression / éligibilité sans requête extra */
+  currentCycleCollectedAmount?: number | null;
+  currentCycleTotalExpected?: number | null;
+  /** Navigation `CyclePayoutScreen` depuis la liste si exposé par l’API */
+  payoutBeneficiaryName?: string | null;
+  payoutNetAmount?: number | null;
+  /** Alias / nommage alternatif (contrat ou backend) — même sémantique que les champs `payout*` */
+  beneficiaryName?: string | null;
+  beneficiaryNetAmount?: number | null;
+  /** Alias explicite du numéro de cycle courant (= `currentCycle` quand présent) */
+  currentCycleNumber?: number | null;
+  /** `true` si l’organisateur peut lancer le versement cagnotte (hydraté liste + calcul mobile si absent API) */
+  canTriggerPayout?: boolean;
+  /** Ordre personnel dans la rotation (liste / backend) */
+  myRotationOrder?: number | null;
+  /** Numéro de cycle où le membre reçoit la cagnotte (backend) */
+  myPayoutCycleNumber?: number | null;
+  /** Date prévue du versement cagnotte au membre — ne pas confondre avec cotisation */
+  myScheduledPayoutDate?: string | null;
+  /** Indique si c’est le tour du membre pour le versement */
+  isMyTurnNow?: boolean;
+  /** Liste GET /v1/savings — date de déblocage du capital (ISO ou YYYY-MM-DD) */
+  savingsUnlockDate?: string | null;
+  /** Liste épargne — total épargné côté membre si exposé par l’API */
+  savingsTotalSaved?: number | null;
+  /** Statut membre épargne si fourni par la liste */
+  savingsMemberStatus?: SavingsMemberStatus | null;
+  /** Liste — retrait autorisé (capital débloqué / API) */
+  savingsWithdrawalAvailable?: boolean | null;
+  /** Période courante épargne (liste GET /v1/savings) — navigation versement */
+  savingsCurrentPeriodUid?: string | null;
 }
 
 export type RotationType = 'RANDOM' | 'MANUAL';

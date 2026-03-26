@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Alert,
   Platform,
-  ActivityIndicator,
   KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -29,6 +28,7 @@ import { parseApiError } from '@/api/errors/errorHandler';
 import { logger } from '@/utils/logger';
 import { parseFcfa, formatFcfa } from '@/utils/formatters';
 import type { CreateTontineDto } from '@/api/types/api.types';
+import { WizardProgressBar, WizardFooter } from '@/components/tontineCreate';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateTontine'>;
 
@@ -137,6 +137,50 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
   const frequency = watch('frequency');
   const penaltyType = watch('penaltyType');
   const startDate = watch('startDate');
+  const formValues = watch();
+
+  const step1Valid = useMemo(
+    () =>
+      step1Schema.safeParse({
+        name: formValues.name,
+        amountPerShare: formValues.amountPerShare,
+        frequency: formValues.frequency,
+        startDate: formValues.startDate,
+      }).success,
+    [
+      formValues.name,
+      formValues.amountPerShare,
+      formValues.frequency,
+      formValues.startDate,
+    ]
+  );
+  const step2Valid = useMemo(
+    () =>
+      step2Schema.safeParse({
+        penaltyType: formValues.penaltyType,
+        penaltyValue: formValues.penaltyValue,
+        gracePeriodDays: formValues.gracePeriodDays,
+        suspensionAfterDays: formValues.suspensionAfterDays,
+      }).success,
+    [
+      formValues.penaltyType,
+      formValues.penaltyValue,
+      formValues.gracePeriodDays,
+      formValues.suspensionAfterDays,
+    ]
+  );
+  const step3Valid = useMemo(
+    () =>
+      step3Schema.safeParse({
+        rotationType: formValues.rotationType,
+      }).success,
+    [formValues.rotationType]
+  );
+
+  const nextDisabled =
+    (step === 1 && !step1Valid) ||
+    (step === 2 && !step2Valid) ||
+    (step === 3 && !step3Valid);
 
   useEffect(() => {
     if (accountType !== 'ORGANISATEUR') {
@@ -228,8 +272,18 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
     return null;
   }
 
+  const stepMeta =
+    (
+      [
+        { title: 'createTontine.wizardStep1Title', sub: 'createTontine.wizardStep1Subtitle' },
+        { title: 'createTontine.wizardStep2Title', sub: 'createTontine.wizardStep2Subtitle' },
+        { title: 'createTontine.wizardStep3Title', sub: 'createTontine.wizardStep3Subtitle' },
+        { title: 'createTontine.wizardStep4Title', sub: 'createTontine.wizardStep4Subtitle' },
+      ] as const
+    )[step - 1];
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <Pressable
@@ -242,7 +296,7 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
             <Ionicons name="arrow-back" size={24} color="#1A6B3C" />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {t('createTontine.screenTitle', 'Création de Tontine')} | Kelemba
+            {t('createTontine.wizardHeaderTitle')}
           </Text>
           <Pressable
             style={styles.headerHelpButton}
@@ -250,7 +304,10 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
             onPress={() =>
               Alert.alert(
                 t('common.help', 'Aide'),
-                t('createTontine.helpMessage', 'Remplissez les étapes pour créer votre tontine. Le nombre de tours est calculé automatiquement selon les parts des membres.')
+                t(
+                  'createTontine.helpMessage',
+                  'Remplissez les étapes pour créer votre tontine. Le nombre de tours est calculé automatiquement selon les parts des membres.'
+                )
               )
             }
             accessibilityRole="button"
@@ -259,22 +316,13 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
             <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
           </Pressable>
         </View>
-        <View style={styles.progressContainer}>
-          {[1, 2, 3, 4].map((i) => (
-            <View
-              key={i}
-              style={[
-                styles.progressDot,
-                i === step && styles.progressDotActive,
-                i < step && styles.progressDotCompleted,
-              ]}
-            />
-          ))}
-        </View>
-        <Text style={styles.stepLabel}>
-          {t('createTontine.stepLabel', 'Étape')} {step} / 4
-        </Text>
       </View>
+      <WizardProgressBar
+        currentStep={step}
+        totalSteps={4}
+        accentColor={KELEMBA_GREEN}
+        label={t('createTontine.wizardProgressLabel', { current: step, total: 4 })}
+      />
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
@@ -287,6 +335,12 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {stepMeta ? (
+            <View style={styles.wizardHero}>
+              <Text style={styles.wizardHeroTitle}>{t(stepMeta.title)}</Text>
+              <Text style={styles.wizardHeroSubtitle}>{t(stepMeta.sub)}</Text>
+            </View>
+          ) : null}
           {submitError && (
             <View style={styles.errorBanner}>
               <Text style={styles.errorText}>{submitError}</Text>
@@ -389,17 +443,23 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
               )}
               {errors.startDate && <Text style={styles.fieldError}>{errors.startDate.message}</Text>}
 
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryCardIcon}>
-                  <Ionicons name="wallet-outline" size={28} color={KELEMBA_GREEN} />
-                </View>
-                <Text style={styles.summaryCardTitle}>{t('createTontine.summaryCardTitle', 'Récapitulatif')}</Text>
+              <View style={styles.livePreviewCard}>
+                <Text style={styles.livePreviewKicker}>{t('createTontine.livePreviewTitle')}</Text>
                 <Text style={styles.summaryCardAmount}>{formatFcfa(watch('amountPerShare'))}</Text>
-                <Text style={styles.summaryCardHint}>{t('createTontine.toursCalculatedAuto', 'Nombre de tours calculé automatiquement selon les parts actives')}</Text>
-                <Text style={styles.summaryCardHint}>{t('createTontine.onePartOneRotation', '1 part = 1 passage dans la rotation')}</Text>
-                <Text style={styles.summaryCardHint}>{t('createTontine.multiPartsCotise', 'Un membre avec plusieurs parts cotise et reçoit plusieurs fois')}</Text>
+                <Text style={styles.livePreviewPer}>{t('createTontine.amountLabel')}</Text>
+                <View style={styles.chipRow}>
+                  <View style={styles.infoChip}>
+                    <Ionicons name="calendar-outline" size={14} color={KELEMBA_GREEN} />
+                    <Text style={styles.infoChipText}>{t(`createTontine.freq${frequency}`)}</Text>
+                  </View>
+                  <View style={styles.infoChip}>
+                    <Ionicons name="git-network-outline" size={14} color={KELEMBA_GREEN} />
+                    <Text style={styles.infoChipText}>{t('createTontine.livePreviewChipRotation')}</Text>
+                  </View>
+                </View>
+                <Text style={styles.summaryCardFootnote}>{t('createTontine.livePreviewChipTours')}</Text>
                 <Text style={styles.summaryCardExample}>
-                  {t('createTontine.contributionExample', 'Exemple par tour')} : 1 part = {formatFcfa(watch('amountPerShare'))}, 2 parts = {formatFcfa((watch('amountPerShare') || 0) * 2)}, 3 parts = {formatFcfa((watch('amountPerShare') || 0) * 3)}
+                  {t('createTontine.contributionExample')} · 2 parts = {formatFcfa((watch('amountPerShare') || 0) * 2)}
                 </Text>
               </View>
             </View>
@@ -570,6 +630,12 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
 
           {step === 4 && (
             <View style={styles.stepContent}>
+              <View style={styles.recapHero}>
+                <Text style={styles.recapHeroAmount}>{formatFcfa(watch('amountPerShare'))}</Text>
+                <Text style={styles.recapHeroSub}>
+                  {t(`createTontine.freq${watch('frequency')}`)} · {watch('startDate') ? formatDateToDisplay(watch('startDate')) : '—'}
+                </Text>
+              </View>
               <Text style={styles.recapTitle}>{t('createTontine.summaryParams', 'Paramètres')}</Text>
               <View style={styles.summaryCardBlock}>
                 <SummaryRow label={t('createTontine.nameLabel')} value={watch('name')} />
@@ -595,44 +661,26 @@ export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
                   isLast
                 />
               </View>
-              <Pressable
-                style={[styles.submitButtonPremium, isSubmitting && styles.submitButtonDisabled]}
-                onPress={handleSubmit(onSubmit)}
-                disabled={isSubmitting}
-                accessibilityRole="button"
-                accessibilityLabel={t('createTontine.createButton', 'Créer la tontine')}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.submitTextPremium}>{t('createTontine.createButton', 'Créer la tontine')}</Text>
-                )}
-              </Pressable>
-            </View>
-          )}
-
-          {step < 4 && (
-            <View style={styles.navRow}>
-              <Pressable
-                style={styles.prevButton}
-                onPress={() => setStep((s) => Math.max(1, s - 1))}
-                disabled={step === 1}
-              >
-                <Text style={[styles.prevText, step === 1 && styles.prevTextDisabled]}>
-                  {t('common.back')}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={styles.nextButton}
-                onPress={handleNext}
-                accessibilityRole="button"
-                accessibilityLabel={t('common.next')}
-              >
-                <Text style={styles.nextText}>{t('common.next')}</Text>
-              </Pressable>
+              <Text style={styles.recapHint}>{t('createTontine.recapFinalHint')}</Text>
             </View>
           )}
         </ScrollView>
+        <WizardFooter
+          showBack={step > 1}
+          onBack={() => setStep((s) => Math.max(1, s - 1))}
+          onPrimary={() => {
+            if (step < 4) {
+              void handleNext();
+            } else {
+              void handleSubmit(onSubmit)();
+            }
+          }}
+          primaryDisabled={step < 4 ? nextDisabled : false}
+          primaryLabel={step < 4 ? t('common.next') : t('createTontine.createButton')}
+          backLabel={t('common.back')}
+          primaryColor={KELEMBA_GREEN}
+          primaryLoading={step === 4 && isSubmitting}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -668,8 +716,8 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
@@ -701,32 +749,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 16,
+  wizardHero: {
+    marginBottom: 8,
   },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E5E7EB',
+  wizardHeroTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: -0.4,
   },
-  progressDotActive: {
-    width: 24,
-    borderRadius: 4,
-    backgroundColor: KELEMBA_GREEN,
-  },
-  progressDotCompleted: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-  },
-  stepLabel: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginTop: 10,
-    textAlign: 'center',
-    fontWeight: '500',
+  wizardHeroSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginTop: 6,
   },
   keyboardView: {
     flex: 1,
@@ -867,28 +903,54 @@ const styles = StyleSheet.create({
   freqCardTextActive: {
     color: KELEMBA_GREEN,
   },
-  summaryCard: {
+  livePreviewCard: {
     backgroundColor: KELEMBA_GREEN_LIGHT,
     borderRadius: BORDER_RADIUS,
-    padding: 20,
+    padding: 18,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: 'rgba(26, 107, 60, 0.15)',
+    borderColor: 'rgba(26, 107, 60, 0.18)',
   },
-  summaryCardIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+  livePreviewKicker: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: KELEMBA_GREEN,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  livePreviewPer: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
     marginBottom: 12,
   },
-  summaryCardTitle: {
-    fontSize: 14,
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  infoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 107, 60, 0.2)',
+  },
+  infoChipText: {
+    fontSize: 12,
     fontWeight: '600',
-    color: KELEMBA_GREEN,
-    marginBottom: 4,
+    color: '#374151',
+  },
+  summaryCardFootnote: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '600',
   },
   summaryCardAmount: {
     fontSize: 24,
@@ -1061,12 +1123,39 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: KELEMBA_GREEN,
   },
+  recapHero: {
+    backgroundColor: KELEMBA_GREEN_LIGHT,
+    borderRadius: BORDER_RADIUS,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 107, 60, 0.15)',
+    alignItems: 'center',
+  },
+  recapHeroAmount: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: KELEMBA_GREEN,
+  },
+  recapHeroSub: {
+    fontSize: 14,
+    color: '#4B5563',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  recapHint: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginTop: 16,
+    textAlign: 'center',
+  },
   recapTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: KELEMBA_GREEN,
-    marginTop: 16,
-    marginBottom: 12,
+    marginTop: 8,
+    marginBottom: 10,
   },
   summaryCardBlock: {
     backgroundColor: '#FFFFFF',
@@ -1102,66 +1191,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#1C1C1E',
-  },
-  submitButtonPremium: {
-    backgroundColor: KELEMBA_GREEN,
-    minHeight: 56,
-    borderRadius: BORDER_RADIUS,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  submitButtonDisabled: {
-    opacity: 0.7,
-  },
-  submitTextPremium: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  navRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 28,
-    gap: 16,
-  },
-  prevButton: {
-    minHeight: 52,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    borderRadius: BORDER_RADIUS_SM,
-    backgroundColor: '#F5F5F5',
-  },
-  prevText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  prevTextDisabled: {
-    color: '#BDBDBD',
-  },
-  nextButton: {
-    flex: 1,
-    minHeight: 52,
-    backgroundColor: KELEMBA_GREEN,
-    borderRadius: BORDER_RADIUS,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  nextText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
 });

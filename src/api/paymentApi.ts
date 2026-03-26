@@ -123,12 +123,19 @@ export async function getPaymentHistory(
         r.autoValidated === true ||
         r.validationSource === 'SYSTEM' ||
         r.validationSource === 'AUTO';
+      const part = Number(r.amount ?? 0);
+      const pen = Number(r.penalty ?? 0);
+      const totalPaidRaw = r.totalPaid;
+      const totalPaid =
+        totalPaidRaw != null && String(totalPaidRaw) !== ''
+          ? Number(totalPaidRaw)
+          : part + pen;
       return {
         uid: String(r.uid ?? r.id ?? ''),
         cycleUid: r.cycleUid != null ? String(r.cycleUid) : undefined,
-        amount: Number(r.amount ?? 0),
-        penalty: Number(r.penalty ?? 0),
-        totalPaid: Number(r.totalPaid ?? r.amount ?? 0),
+        amount: part,
+        penalty: pen,
+        totalPaid,
         method: (r.method as PaymentHistoryItem['method']) ?? 'SYSTEM',
         status: (r.status as PaymentHistoryItem['status']) ?? 'PENDING',
         paidAt: (r.paidAt as string | null) ?? null,

@@ -174,6 +174,52 @@ export const ENDPOINTS = {
     }),
   },
 
+  // ── SAVINGS (Tontines Épargne) — aligné contrat /api/v1/savings
+  SAVINGS: {
+    LIST: { method: 'GET' as const, url: `${BASE}/v1/savings` },
+    CREATE: { method: 'POST' as const, url: `${BASE}/v1/savings` },
+    BY_ID: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}`,
+    }),
+    JOIN: (uid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/savings/${uid}/join`,
+    }),
+    DASHBOARD: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/dashboard`,
+    }),
+    MY_BALANCE: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/my-balance`,
+    }),
+    PERIODS: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/periods`,
+    }),
+    CONTRIBUTIONS: (uid: string, periodUid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/periods/${periodUid}/contributions`,
+    }),
+    CONTRIBUTE: (uid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/savings/${uid}/contribute`,
+    }),
+    WITHDRAW_PREVIEW: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/withdrawal-preview`,
+    }),
+    WITHDRAW: (uid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/savings/${uid}/withdraw`,
+    }),
+    EARLY_EXIT: (uid: string, memberUid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/savings/${uid}/members/${memberUid}/early-exit`,
+    }),
+  },
+
   // ── CYCLES ────────────────────────────────────────────────
   CYCLES: {
     INITIALIZE: (tontineUid: string) => ({
@@ -191,6 +237,11 @@ export const ENDPOINTS = {
     COMPLETION: (cycleUid: string) => ({
       method: 'GET' as const,
       url: `${BASE}/v1/cycles/${cycleUid}/completion`,
+    }),
+    /** État versement organisateur — GET /v1/cycles/:cycleUid/payout-organizer-state */
+    PAYOUT_ORGANIZER_STATE: (cycleUid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/cycles/${cycleUid}/payout-organizer-state`,
     }),
     PAYOUT: (cycleUid: string) => ({
       method: 'POST' as const,
@@ -253,6 +304,8 @@ export const ENDPOINTS = {
   },
 
   // ── NOTIFICATIONS ─────────────────────────────────────────
+  // Contrat actuel (api-contract.json) : liste paginée, unread-count, PATCH …/read.
+  // Aucun DELETE notification — la suppression serveur n’est pas branchée côté mobile.
   NOTIFICATIONS: {
     REGISTER_DEVICE: {
       method: 'POST' as const,

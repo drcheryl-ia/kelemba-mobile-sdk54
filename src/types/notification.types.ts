@@ -45,6 +45,6 @@ export interface UnreadCountResponse {
   count: number;
 }
 
-export type FilterTab = 'ALL' | 'PAYMENTS' | 'TONTINES' | 'SYSTEM';
+export type FilterTab = 'ALL' | 'UNREAD' | 'PAYMENTS' | 'TONTINES' | 'SYSTEM';
 
 export type SectionKey = 'today' | 'thisWeek' | 'older';

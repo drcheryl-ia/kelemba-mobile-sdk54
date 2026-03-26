@@ -45,6 +45,10 @@ import {
 import { classifyApiQueryError } from '@/api/errors/queryRetry';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { formatFcfa } from '@/utils/formatters';
+import {
+  organizerCashPrimaryTotal,
+  paymentHistoryPrimaryTotal,
+} from '@/utils/paymentAmountDisplay';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 import {
   PaymentsSegmentedControl,
@@ -485,7 +489,10 @@ export const ContributionHistoryScreen: React.FC<Props> = ({ route, navigation }
 
   const summary = useMemo(() => {
     const completed = filteredHistoryItems.filter((item) => item.status === 'COMPLETED');
-    const totalVerse = completed.reduce((sum, item) => sum + item.totalPaid, 0);
+    const totalVerse = completed.reduce(
+      (sum, item) => sum + paymentHistoryPrimaryTotal(item),
+      0
+    );
     const totalPenalites = completed.reduce((sum, item) => sum + item.penalty, 0);
     const sansPenalite = completed.filter((item) => item.penalty === 0).length;
     const taux = completed.length > 0 ? Math.round((sansPenalite / completed.length) * 100) : 100;
@@ -577,7 +584,10 @@ export const ContributionHistoryScreen: React.FC<Props> = ({ route, navigation }
     }, null);
     return {
       count: pendingForOrganizer.length,
-      totalAmount: pendingForOrganizer.reduce((sum, item) => sum + item.amount, 0),
+      totalAmount: pendingForOrganizer.reduce(
+        (sum, item) => sum + organizerCashPrimaryTotal(item),
+        0
+      ),
       oldestSubmittedAt: oldest,
     };
   }, [pendingForOrganizer]);
@@ -659,7 +669,7 @@ export const ContributionHistoryScreen: React.FC<Props> = ({ route, navigation }
         paymentUid: item.uid,
         tontineUid: item.tontineUid,
         tontineName: item.tontineName,
-        amount: item.amount,
+        amount: paymentHistoryPrimaryTotal(item),
       });
     }
   }, []);
@@ -682,7 +692,7 @@ export const ContributionHistoryScreen: React.FC<Props> = ({ route, navigation }
       paymentUid: item.uid,
       tontineUid: item.tontineUid,
       tontineName: item.tontineName,
-      amount: item.totalPaid || item.amount,
+      amount: paymentHistoryPrimaryTotal(item),
       method: item.method,
       initialStatus:
         item.status === 'PENDING' ||
@@ -718,7 +728,7 @@ export const ContributionHistoryScreen: React.FC<Props> = ({ route, navigation }
     (row: OrganizerCashPendingAction) => {
       Alert.alert(
         'Valider le paiement',
-        `Confirmer ${formatFcfa(row.amount)} en especes pour ${row.memberName} ?`,
+        `Confirmer ${formatFcfa(organizerCashPrimaryTotal(row))} en especes pour ${row.memberName} ?`,
         [
           { text: 'Annuler', style: 'cancel' },
           {

@@ -72,6 +72,7 @@ export const useCreateSavingsTontine = () => {
     mutationFn: (payload: CreateSavingsTontinePayload) =>
       savingsApi.create(payload),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: savingsKeys.all });
       qc.invalidateQueries({ queryKey: ['tontines'] });
     },
   });
@@ -99,6 +100,7 @@ export const useContributeSavings = (tontineUid: string) => {
       qc.invalidateQueries({
         queryKey: savingsKeys.contributions(tontineUid, variables.periodUid),
       });
+      qc.invalidateQueries({ queryKey: ['tontines'] });
     },
   });
 };
@@ -110,6 +112,9 @@ export const useRequestWithdrawal = (tontineUid: string) => {
       savingsApi.requestWithdrawal(tontineUid, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: savingsKeys.balance(tontineUid) });
+      qc.invalidateQueries({ queryKey: savingsKeys.dashboard(tontineUid) });
+      qc.invalidateQueries({ queryKey: savingsKeys.periods(tontineUid) });
+      qc.invalidateQueries({ queryKey: ['tontines'] });
     },
   });
 };
@@ -117,10 +122,15 @@ export const useRequestWithdrawal = (tontineUid: string) => {
 export const useRequestEarlyExit = (tontineUid: string) => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: RequestWithdrawalPayload) =>
-      savingsApi.requestEarlyExit(tontineUid, payload),
+    mutationFn: (vars: {
+      memberUid: string;
+      payload: RequestWithdrawalPayload;
+    }) =>
+      savingsApi.requestEarlyExit(tontineUid, vars.memberUid, vars.payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: savingsKeys.balance(tontineUid) });
+      qc.invalidateQueries({ queryKey: savingsKeys.dashboard(tontineUid) });
+      qc.invalidateQueries({ queryKey: savingsKeys.periods(tontineUid) });
       qc.invalidateQueries({ queryKey: ['tontines'] });
     },
   });

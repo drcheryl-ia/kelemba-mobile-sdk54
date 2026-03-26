@@ -62,6 +62,11 @@ export interface OrganizerCashPendingAction {
   memberPhone: string;
   submittedAt: string;
   amount: number;
+  /** Part cotisation (hors pénalité), si exposé par l’API. */
+  baseAmount?: number;
+  penaltyAmount?: number;
+  /** Total réel à valider (part + pénalité), si exposé par l’API. */
+  totalAmount?: number;
   paymentMethod: OrganizerCashPendingPaymentMethod;
   status: OrganizerCashPendingValidationStatus | string;
   receiptPhotoUrl: string | null;
@@ -117,6 +122,17 @@ function normalizeOrganizerCashPendingAction(raw: unknown): OrganizerCashPending
         : '';
 
   const amount = Number(r.amount ?? payment?.amount ?? 0);
+  const baseAmount = optionalFiniteNumber(
+    r.baseAmount ?? (payment != null ? (payment as Record<string, unknown>).baseAmount : undefined)
+  );
+  const penaltyAmount = optionalFiniteNumber(
+    r.penaltyAmount ??
+      r.penalty ??
+      (payment != null ? (payment as Record<string, unknown>).penaltyAmount : undefined)
+  );
+  const totalAmount = optionalFiniteNumber(
+    r.totalAmount ?? (payment != null ? (payment as Record<string, unknown>).totalAmount : undefined)
+  );
   const cycleNumber = Number(r.cycleNumber ?? cycle?.cycleNumber ?? 0);
   const cycleUid = String(r.cycleUid ?? cycle?.uid ?? '');
 
@@ -139,7 +155,7 @@ function normalizeOrganizerCashPendingAction(raw: unknown): OrganizerCashPending
       ? (payment as { receiverName?: string }).receiverName
       : undefined;
 
-  return {
+  const row: OrganizerCashPendingAction = {
     validationRequestUid,
     paymentUid,
     tontineUid: String(r.tontineUid ?? tontine?.uid ?? ''),
@@ -165,6 +181,10 @@ function normalizeOrganizerCashPendingAction(raw: unknown): OrganizerCashPending
     latitude: optionalFiniteNumber(r.latitude ?? payment?.latitude),
     longitude: optionalFiniteNumber(r.longitude ?? payment?.longitude),
   };
+  if (baseAmount != null) row.baseAmount = baseAmount;
+  if (penaltyAmount != null) row.penaltyAmount = penaltyAmount;
+  if (totalAmount != null) row.totalAmount = totalAmount;
+  return row;
 }
 
 /** Extrait le tableau d’actions depuis la réponse GET pending-actions (rétrocompat). */

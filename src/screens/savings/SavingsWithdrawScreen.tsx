@@ -1,7 +1,7 @@
 /**
  * Récapitulatif de retrait + confirmation.
  */
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,22 +11,30 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
+import { useSelector } from 'react-redux';
 import type { RootStackParamList } from '@/navigation/types';
+import { selectUserUid } from '@/store/authSlice';
 import { useSavingsDashboard, useRequestWithdrawal, useRequestEarlyExit } from '@/hooks/useSavings';
 import { savingsApi } from '@/api/savings.api';
 import { formatFCFA, isUnlockReached } from '@/utils/savings.utils';
 import { parseApiError } from '@/api/errors/errorHandler';
-import { useState, useEffect } from 'react';
+import { SavingsScreenHeader } from '@/components/savings';
 
 type Route = RouteProp<RootStackParamList, 'SavingsWithdrawScreen'>;
 
 export const SavingsWithdrawScreen: React.FC = () => {
   const route = useRoute<Route>();
   const navigation = useNavigation();
+  const { t } = useTranslation();
   const { tontineUid } = route.params;
+  const userUid = useSelector(selectUserUid);
 
   const { data: dashboard, isLoading } = useSavingsDashboard(tontineUid);
+  const myMemberUid =
+    dashboard?.members.find((m) => m.userUid === userUid)?.uid ?? null;
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof savingsApi.getWithdrawalPreview>> | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
   const [method, setMethod] = useState<'ORANGE_MONEY' | 'TELECEL_MONEY'>('ORANGE_MONEY');
@@ -69,24 +77,37 @@ export const SavingsWithdrawScreen: React.FC = () => {
     const methodLabel = method === 'ORANGE_MONEY' ? 'Orange Money' : 'Telecel Money';
 
     Alert.alert(
-      'Confirmer le retrait',
-      `Vous allez recevoir ${formatFCFA(preview.totalAmount)} sur ${methodLabel}. Cette action est irréversible.`,
+      t('savingsWithdraw.confirmTitle'),
+      t('savingsWithdraw.confirmMessage', {
+        amount: formatFCFA(preview.totalAmount),
+        method: methodLabel,
+      }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel', 'Annuler'), style: 'cancel' },
         {
-          text: 'Confirmer',
+          text: t('common.confirm', 'Confirmer'),
           onPress: async () => {
             try {
               const payload = { method, idempotencyKey: key };
               if (isEarlyExit) {
-                await earlyExitMutation.mutateAsync(payload);
+                if (!myMemberUid) {
+                  Alert.alert(t('savingsWithdraw.errorTitle'), t('savingsWithdraw.memberMissing'));
+                  return;
+                }
+                await earlyExitMutation.mutateAsync({
+                  memberUid: myMemberUid,
+                  payload,
+                });
               } else {
                 await withdrawMutation.mutateAsync(payload);
               }
               (navigation as { navigate: (a: string) => void }).navigate('MainTabs');
             } catch (err: unknown) {
               const apiErr = parseApiError(err);
-              Alert.alert('Erreur', apiErr.message ?? 'Une erreur est survenue.');
+              Alert.alert(
+                t('savingsWithdraw.errorTitle'),
+                apiErr.message ?? t('savingsWithdraw.errorGeneric')
+              );
             }
           },
         },
@@ -96,24 +117,37 @@ export const SavingsWithdrawScreen: React.FC = () => {
 
   if (isLoading || !dashboard) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1A6B3C" />
-      </View>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title={t('savingsBalance.defaultTitle')}
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#1A6B3C" />
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SavingsScreenHeader
+        title={dashboard.tontine.name}
+        subtitle={t('savingsWithdraw.subtitle')}
+        onBack={() => navigation.goBack()}
+        titleNumberOfLines={2}
+      />
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
       {isEarlyExit ? (
         <View style={styles.bannerOrange}>
           <Text style={styles.bannerText}>
-            ⚠️ Sortie anticipée — une pénalité de {config?.earlyExitPenaltyPercent ?? 0} % sera
-            appliquée.
+            {t('savingsWithdraw.bannerEarly', { n: config?.earlyExitPenaltyPercent ?? 0 })}
           </Text>
         </View>
       ) : (
         <View style={styles.bannerGreen}>
-          <Text style={styles.bannerText}>✅ Votre épargne est disponible !</Text>
+          <Text style={styles.bannerText}>{t('savingsWithdraw.bannerUnlocked')}</Text>
         </View>
       )}
 
@@ -122,19 +156,19 @@ export const SavingsWithdrawScreen: React.FC = () => {
       ) : preview ? (
         <View style={styles.previewCard}>
           <View style={styles.previewRow}>
-            <Text style={styles.previewLabel}>Capital personnel</Text>
+            <Text style={styles.previewLabel}>{t('savingsWithdraw.previewCapital')}</Text>
             <Text style={styles.previewValue}>{formatFCFA(preview.capitalAmount)}</Text>
           </View>
           {preview.bonusAmount > 0 && (
             <View style={styles.previewRow}>
-              <Text style={styles.previewLabel}>Bonus communautaire</Text>
+              <Text style={styles.previewLabel}>{t('savingsWithdraw.previewBonus')}</Text>
               <Text style={styles.previewValue}>{formatFCFA(preview.bonusAmount)}</Text>
             </View>
           )}
           {preview.penaltyAmount > 0 && (
             <View style={styles.previewRow}>
               <Text style={[styles.previewLabel, styles.previewPenalty]}>
-                Pénalité sortie anti.
+                {t('savingsWithdraw.previewPenalty')}
               </Text>
               <Text style={[styles.previewValue, styles.previewPenalty]}>
                 -{formatFCFA(preview.penaltyAmount)}
@@ -143,15 +177,15 @@ export const SavingsWithdrawScreen: React.FC = () => {
           )}
           <View style={styles.previewDivider} />
           <View style={styles.previewRow}>
-            <Text style={styles.previewTotalLabel}>TOTAL À RECEVOIR</Text>
+            <Text style={styles.previewTotalLabel}>{t('savingsWithdraw.previewTotal')}</Text>
             <Text style={styles.previewTotalValue}>{formatFCFA(preview.totalAmount)}</Text>
           </View>
         </View>
       ) : (
-        <Text style={styles.errorText}>Impossible de charger l'aperçu du retrait.</Text>
+        <Text style={styles.errorText}>{t('savingsWithdraw.previewError')}</Text>
       )}
 
-      <Text style={styles.label}>Méthode de réception</Text>
+      <Text style={styles.label}>{t('savingsWithdraw.receptionMethod')}</Text>
       <View style={styles.methodRow}>
         <Pressable
           style={[styles.methodCard, method === 'ORANGE_MONEY' && styles.methodCardActive]}
@@ -171,21 +205,29 @@ export const SavingsWithdrawScreen: React.FC = () => {
         <Pressable
           style={styles.cta}
           onPress={handleConfirm}
-          disabled={withdrawMutation.isPending || earlyExitMutation.isPending}
+          disabled={
+            withdrawMutation.isPending ||
+            earlyExitMutation.isPending ||
+            (isEarlyExit && !myMemberUid)
+          }
         >
           {withdrawMutation.isPending || earlyExitMutation.isPending ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.ctaText}>Recevoir {formatFCFA(preview.totalAmount)}</Text>
+            <Text style={styles.ctaText}>
+              {t('savingsWithdraw.ctaReceive', { amount: formatFCFA(preview.totalAmount) })}
+            </Text>
           )}
         </Pressable>
       )}
     </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F8FA' },
+  safe: { flex: 1, backgroundColor: '#F7F8FA' },
+  scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   bannerOrange: {

@@ -11,8 +11,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import type { OrganizerCashPendingAction } from '@/api/cashPaymentApi';
 import { formatFcfa } from '@/utils/formatters';
+import {
+  organizerCashPrimaryTotal,
+  organizerCashShareAmount,
+  organizerCashShowAmountBreakdown,
+} from '@/utils/paymentAmountDisplay';
 import type { CashDecisionAction } from '../organizerCashMutations';
 
 const GREEN = '#1A6B3C';
@@ -46,7 +52,14 @@ export const CashOrganizerCard: React.FC<Props> = ({
   onReject,
   busy,
   busyAction,
-}) => (
+}) => {
+  const { t } = useTranslation();
+  const primaryTotal = organizerCashPrimaryTotal(row);
+  const share = organizerCashShareAmount(row);
+  const pen = row.penaltyAmount ?? 0;
+  const showBreakdown = organizerCashShowAmountBreakdown(row);
+
+  return (
   <View
     style={[
       styles.card,
@@ -65,8 +78,20 @@ export const CashOrganizerCard: React.FC<Props> = ({
         <Text style={styles.member} numberOfLines={1}>
           {row.memberName}
         </Text>
-        <Text style={styles.amount}>{formatFcfa(row.amount)}</Text>
+        <Text style={styles.amount}>{formatFcfa(primaryTotal)}</Text>
       </View>
+      {showBreakdown ? (
+        <View style={styles.breakdownBlock}>
+          <Text style={styles.detailLine}>
+            {t('paymentsDisplay.partLine', { value: formatFcfa(share) })}
+          </Text>
+          {pen > 0 ? (
+            <Text style={styles.detailPenalty}>
+              {t('paymentsDisplay.penaltyLine', { value: formatFcfa(pen) })}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       <Text style={styles.meta} numberOfLines={1}>
         Cycle {row.cycleNumber} · {row.tontineName}
       </Text>
@@ -128,7 +153,8 @@ export const CashOrganizerCard: React.FC<Props> = ({
       </View>
     </View>
   </View>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   card: {
@@ -173,6 +199,20 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
     color: GREEN,
+  },
+  breakdownBlock: {
+    marginBottom: 6,
+    gap: 2,
+  },
+  detailLine: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  detailPenalty: {
+    fontSize: 12,
+    color: RED,
+    fontWeight: '600',
   },
   meta: {
     fontSize: 13,

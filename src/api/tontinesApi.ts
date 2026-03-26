@@ -10,6 +10,7 @@ import { ApiError } from './errors/ApiError';
 import { ApiErrorCode } from './errors/errorCodes';
 import { logger } from '@/utils/logger';
 import { normalizeCurrentCycle as normalizeCurrentCycleResponse } from '@/utils/currentCycleNormalizer';
+import { canShowOrganizerPayoutFromListItem } from '@/utils/cyclePayoutEligibility';
 import type {
   TontinePreview,
   TontineDto,
@@ -20,6 +21,7 @@ import type {
   TontineListItem,
   TontineDetail,
   CurrentCycle,
+  CycleStatus,
   TontineMember,
   TontineReportSummary,
   RotationSwapRequest,
@@ -32,6 +34,11 @@ import type {
   SendInvitationsResponse,
 } from '@/types/invite';
 import { normalizeRcPhone } from '@/utils/validators';
+import {
+  mergeUnifiedTontines,
+  normalizeSavingsListItem,
+  parseSavingsListPayload,
+} from '@/utils/savingsListNormalizer';
 import type { TontineRotationResponse } from '@/types/rotation';
 import type { TontineType } from '@/types/savings.types';
 import type { PaymentStatus } from '@/types/domain.types';
@@ -193,6 +200,84 @@ function optionalStringArray(v: unknown): string[] | null | undefined {
   return v.map((item) => String(item));
 }
 
+/** Champs cycle embarqués dans GET liste (currentCycle objet) — sans requête par carte. */
+function parseListCurrentCycleEmbeds(raw: Record<string, unknown>): {
+  currentCycleNum: number | null;
+  currentCycleUid: string | null | undefined;
+  collectionProgress: number | null | undefined;
+  currentCycleStatus: CycleStatus | null | undefined;
+  currentCycleCollectedAmount: number | null | undefined;
+  currentCycleTotalExpected: number | null | undefined;
+  payoutBeneficiaryName: string | null | undefined;
+  payoutNetAmount: number | null | undefined;
+  expectedDateFromCycle: string | null | undefined;
+} {
+  const ccRaw = raw.currentCycle;
+  if (ccRaw == null) {
+    return {
+      currentCycleNum: null,
+      currentCycleUid: undefined,
+      collectionProgress: undefined,
+      currentCycleStatus: undefined,
+      currentCycleCollectedAmount: undefined,
+      currentCycleTotalExpected: undefined,
+      payoutBeneficiaryName: undefined,
+      payoutNetAmount: undefined,
+      expectedDateFromCycle: undefined,
+    };
+  }
+  if (typeof ccRaw === 'object' && ccRaw !== null && 'cycleNumber' in ccRaw) {
+    const cc = ccRaw as Record<string, unknown>;
+    const currentCycleNum = Number(cc.cycleNumber);
+    const currentCycleUid = cc.uid != null ? String(cc.uid) : null;
+    const collected = optionalFiniteNumber(cc.collectedAmount);
+    const totalExpected = optionalFiniteNumber(cc.totalExpected);
+    let collectionProgress = optionalFiniteNumber(cc.collectionProgress);
+    if (
+      collectionProgress === undefined &&
+      collected != null &&
+      totalExpected != null &&
+      totalExpected > 0
+    ) {
+      collectionProgress = collected / totalExpected;
+    }
+    const st = cc.status;
+    const currentCycleStatus: CycleStatus | undefined =
+      typeof st === 'string' ? (st as CycleStatus) : undefined;
+    const bn = cc.beneficiaryName;
+    const payoutBeneficiaryName =
+      bn == null || bn === ''
+        ? null
+        : typeof bn === 'string'
+          ? bn
+          : String(bn);
+    return {
+      currentCycleNum: Number.isFinite(currentCycleNum) ? currentCycleNum : null,
+      currentCycleUid,
+      collectionProgress,
+      currentCycleStatus: currentCycleStatus ?? null,
+      currentCycleCollectedAmount: collected ?? undefined,
+      currentCycleTotalExpected: totalExpected ?? undefined,
+      payoutBeneficiaryName: payoutBeneficiaryName ?? undefined,
+      payoutNetAmount:
+        optionalFiniteNumber(cc.beneficiaryNetAmount ?? cc.netPayoutAmount) ?? undefined,
+      expectedDateFromCycle: optionalNextPaymentDate(cc.expectedDate),
+    };
+  }
+  const n = Number(ccRaw);
+  return {
+    currentCycleNum: Number.isFinite(n) ? n : null,
+    currentCycleUid: undefined,
+    collectionProgress: undefined,
+    currentCycleStatus: undefined,
+    currentCycleCollectedAmount: undefined,
+    currentCycleTotalExpected: undefined,
+    payoutBeneficiaryName: undefined,
+    payoutNetAmount: undefined,
+    expectedDateFromCycle: undefined,
+  };
+}
+
 export function normalizeCurrentCycle(raw: Record<string, unknown>): CurrentCycle {
   return {
     uid: String(raw.uid ?? ''),
@@ -220,8 +305,21 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
   const cyclePaymentStatus = parseCyclePaymentStatus(
     raw.currentCyclePaymentStatus ?? raw.paymentStatus ?? raw.memberPaymentStatus
   );
+  const cycleEmbeds = parseListCurrentCycleEmbeds(raw);
+  /** Racine DTO + objet `currentCycle` — ne pas perdre `collectionProgress` top-level. */
+  const collectionProgressMerged =
+    optionalFiniteNumber(raw.collectionProgress) ?? cycleEmbeds.collectionProgress ?? null;
+  const currentCycleUidMerged =
+    raw.currentCycleUid != null && String(raw.currentCycleUid) !== ''
+      ? String(raw.currentCycleUid)
+      : cycleEmbeds.currentCycleUid ?? null;
+  const currentCycleNumMerged = (() => {
+    const fromRaw = optionalFiniteNumber(raw.currentCycleNumber);
+    if (fromRaw != null && Number.isFinite(fromRaw)) return fromRaw;
+    return cycleEmbeds.currentCycleNum;
+  })();
   // ⚠️ NE PAS confondre : AccountType (global) vs MemberRole (dans une tontine)
-  return {
+  const base: TontineListItem = {
     uid: (raw.tontineUid ?? raw.uid) as string,
     name: (raw.tontineName ?? raw.name) as string,
     status: (raw.tontineStatus ?? raw.status) as TontineListItem['status'],
@@ -229,12 +327,7 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
     amountPerShare: Number(raw.amountPerShare),
     frequency: raw.frequency as TontineListItem['frequency'],
     totalCycles: Number(raw.totalCycles),
-    currentCycle:
-      raw.currentCycle != null
-        ? typeof raw.currentCycle === 'object' && 'cycleNumber' in raw.currentCycle
-          ? (raw.currentCycle as { cycleNumber: number }).cycleNumber
-          : Number(raw.currentCycle)
-        : null,
+    currentCycle: currentCycleNumMerged,
     membershipRole: (raw.userRole ?? raw.membershipRole) as TontineListItem['membershipRole'],
     // membershipStatus absent du contrat API MyTontineItemDto → dériver depuis userRole
     // CREATOR et MEMBER actifs = ACTIVE ; le backend filtre déjà les PENDING
@@ -254,13 +347,22 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
         raw.memberPaymentDueDate
     ),
     currentCycleExpectedDate: optionalNextPaymentDate(
-      (
-        raw.currentCycle as
-          | { expectedDate?: string }
-          | null
-          | undefined
-      )?.expectedDate
+      cycleEmbeds.expectedDateFromCycle !== undefined
+        ? cycleEmbeds.expectedDateFromCycle
+        : (
+            raw.currentCycle as
+              | { expectedDate?: string }
+              | null
+              | undefined
+          )?.expectedDate
     ),
+    currentCycleUid: currentCycleUidMerged,
+    collectionProgress: collectionProgressMerged,
+    currentCycleStatus: cycleEmbeds.currentCycleStatus,
+    currentCycleCollectedAmount: cycleEmbeds.currentCycleCollectedAmount,
+    currentCycleTotalExpected: cycleEmbeds.currentCycleTotalExpected,
+    payoutBeneficiaryName: cycleEmbeds.payoutBeneficiaryName,
+    payoutNetAmount: cycleEmbeds.payoutNetAmount,
     paymentStatus:
       cyclePaymentStatus != null
         ? cyclePaymentStatus
@@ -304,29 +406,96 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
             ? ('INVITE' as const)
             : undefined,
   };
+
+  const payoutName =
+    raw.beneficiaryName != null && raw.beneficiaryName !== ''
+      ? String(raw.beneficiaryName)
+      : base.payoutBeneficiaryName ?? null;
+  const payoutNet =
+    optionalFiniteNumber(raw.beneficiaryNetAmount ?? raw.netAmount) ?? base.payoutNetAmount ?? null;
+
+  const canTriggerPayout: boolean =
+    raw.canTriggerPayout === false
+      ? false
+      : raw.canTriggerPayout === true
+        ? true
+        : canShowOrganizerPayoutFromListItem({
+            ...base,
+            payoutBeneficiaryName: payoutName,
+            payoutNetAmount: payoutNet,
+          });
+
+  const myRotationOrder = optionalFiniteNumber(raw.myRotationOrder);
+  const myPayoutCycleNumber = optionalFiniteNumber(raw.myPayoutCycleNumber);
+  const myScheduledPayoutDate = optionalNextPaymentDate(raw.myScheduledPayoutDate);
+  const isMyTurnNow: boolean | undefined =
+    raw.isMyTurnNow === true ? true : raw.isMyTurnNow === false ? false : undefined;
+
+  return {
+    ...base,
+    payoutBeneficiaryName: payoutName,
+    payoutNetAmount: payoutNet,
+    beneficiaryName: payoutName,
+    beneficiaryNetAmount: payoutNet,
+    currentCycleNumber: base.currentCycle,
+    canTriggerPayout,
+    myRotationOrder,
+    myPayoutCycleNumber,
+    myScheduledPayoutDate,
+    isMyTurnNow,
+  };
+}
+
+async function fetchRotativeTontinesForList(): Promise<TontineListItem[]> {
+  const { url } = ENDPOINTS.TONTINES.MY_TONTINES;
+  const response = await apiClient.get<
+    | PaginatedResponse<Record<string, unknown>>
+    | Record<string, unknown>[]
+    | { tontines: Record<string, unknown>[] }
+    | { data: Record<string, unknown>[] }
+  >(url);
+  const raw = Array.isArray(response.data)
+    ? response.data
+    : (response.data as Record<string, unknown>)?.tontines ??
+      (response.data as Record<string, unknown>)?.data ??
+      [];
+  return (Array.isArray(raw) ? raw : []).map((item) =>
+    normalizeTontineListItem(item as Record<string, unknown>)
+  );
+}
+
+async function fetchSavingsTontinesForList(): Promise<TontineListItem[]> {
+  const { url } = ENDPOINTS.SAVINGS.LIST;
+  const response = await apiClient.get<unknown>(url);
+  const items = parseSavingsListPayload(response.data);
+  return items.map(normalizeSavingsListItem);
 }
 
 /**
- * Liste des tontines de l'utilisateur connecté.
- * GET /api/v1/tontines/me
+ * Liste unifiée des tontines de l'utilisateur : rotatives (GET /v1/tontines/me) + épargne (GET /v1/savings).
+ * Si l'épargne échoue, les rotatives sont conservées.
  */
 export const getTontines = async (): Promise<TontineListItem[]> => {
   try {
-    const { url } = ENDPOINTS.TONTINES.MY_TONTINES;
-    const response = await apiClient.get<
-      | PaginatedResponse<Record<string, unknown>>
-      | Record<string, unknown>[]
-      | { tontines: Record<string, unknown>[] }
-      | { data: Record<string, unknown>[] }
-    >(url);
-    const raw = Array.isArray(response.data)
-      ? response.data
-      : (response.data as Record<string, unknown>)?.tontines ??
-        (response.data as Record<string, unknown>)?.data ??
-        [];
-    return (Array.isArray(raw) ? raw : []).map((item) =>
-      normalizeTontineListItem(item as Record<string, unknown>)
-    );
+    const [rotRes, savRes] = await Promise.allSettled([
+      fetchRotativeTontinesForList(),
+      fetchSavingsTontinesForList(),
+    ]);
+
+    if (rotRes.status === 'rejected') {
+      logger.error('getTontines — liste rotative indisponible');
+      throw parseApiError(rotRes.reason);
+    }
+
+    const rotative = rotRes.value;
+    let savings: TontineListItem[] = [];
+    if (savRes.status === 'fulfilled') {
+      savings = savRes.value;
+    } else {
+      logger.warn('getTontines — liste épargne indisponible (rotatives conservées)');
+    }
+
+    return mergeUnifiedTontines(rotative, savings);
   } catch (err: unknown) {
     const apiError = parseApiError(err);
     logger.error('getTontines failed');

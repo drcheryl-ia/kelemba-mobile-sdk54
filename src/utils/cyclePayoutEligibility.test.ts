@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { canShowOrganizerPayoutCta, isCycleCollectionComplete } from './cyclePayoutEligibility';
-import type { CurrentCycle } from '@/types/tontine';
+import {
+  buildCurrentCycleFromListItem,
+  canShowOrganizerPayoutCta,
+  canShowOrganizerPayoutFromListItem,
+  isCycleCollectionComplete,
+  listItemCollectionProgressPercent,
+} from './cyclePayoutEligibility';
+import type { CurrentCycle, TontineListItem } from '@/types/tontine';
 
 function baseCycle(over: Partial<CurrentCycle> = {}): CurrentCycle {
   return {
@@ -77,5 +83,86 @@ describe('canShowOrganizerPayoutCta', () => {
     expect(
       canShowOrganizerPayoutCta(true, baseCycle({ status: 'PAYOUT_IN_PROGRESS', collectionProgress: 1 }), undefined)
     ).toBe(false);
+  });
+});
+
+function baseListItem(over: Partial<TontineListItem> = {}): TontineListItem {
+  return {
+    uid: 't1',
+    name: 'Tontine',
+    status: 'ACTIVE',
+    amountPerShare: 1000,
+    frequency: 'MONTHLY',
+    totalCycles: 5,
+    currentCycle: 1,
+    membershipRole: 'CREATOR',
+    membershipStatus: 'ACTIVE',
+    isCreator: true,
+    ...over,
+  };
+}
+
+describe('listItemCollectionProgressPercent', () => {
+  it('retourne un pourcentage depuis collectionProgress 0–1', () => {
+    expect(listItemCollectionProgressPercent(baseListItem({ collectionProgress: 0.75 }))).toBe(75);
+    expect(listItemCollectionProgressPercent(baseListItem({ collectionProgress: 1 }))).toBe(100);
+  });
+
+  it('retourne null sans donnée exploitable', () => {
+    expect(listItemCollectionProgressPercent(baseListItem({ collectionProgress: undefined }))).toBe(null);
+  });
+
+  it('calcule depuis collected / totalExpected si besoin', () => {
+    expect(
+      listItemCollectionProgressPercent(
+        baseListItem({
+          collectionProgress: undefined,
+          currentCycleCollectedAmount: 50,
+          currentCycleTotalExpected: 200,
+        })
+      )
+    ).toBe(25);
+  });
+});
+
+describe('canShowOrganizerPayoutFromListItem', () => {
+  it('true pour organisateur + uid cycle + collecte complète', () => {
+    expect(
+      canShowOrganizerPayoutFromListItem(
+        baseListItem({
+          currentCycleUid: 'c-uid',
+          collectionProgress: 1,
+          currentCycleStatus: 'ACTIVE',
+        })
+      )
+    ).toBe(true);
+  });
+
+  it('false pour membre même si collecte complète', () => {
+    expect(
+      canShowOrganizerPayoutFromListItem(
+        baseListItem({
+          membershipRole: 'MEMBER',
+          isCreator: false,
+          currentCycleUid: 'c-uid',
+          collectionProgress: 1,
+          currentCycleStatus: 'ACTIVE',
+        })
+      )
+    ).toBe(false);
+  });
+
+  it('false sans currentCycleUid (pas de cycle hydraté)', () => {
+    expect(
+      canShowOrganizerPayoutFromListItem(
+        baseListItem({ collectionProgress: 1, currentCycleStatus: 'ACTIVE' })
+      )
+    ).toBe(false);
+  });
+});
+
+describe('buildCurrentCycleFromListItem', () => {
+  it('retourne null sans uid cycle', () => {
+    expect(buildCurrentCycleFromListItem(baseListItem({ currentCycleUid: null }))).toBe(null);
   });
 });

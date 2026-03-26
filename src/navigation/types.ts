@@ -43,7 +43,7 @@ export type MainTabParamList = {
   Dashboard: undefined;
   Tontines: { initialTab?: 'mine' | 'invitations'; openJoinModal?: boolean } | undefined;
   Payments: { initialSegment?: PaymentsTabInitialSegment } | undefined;
-  History: undefined;
+  SavingsTracking: undefined;
   Profile: NavigatorScreenParams<ProfileStackParamList> | undefined;
 };
 
@@ -72,6 +72,7 @@ export type RootStackParamList = {
   SavingsBalanceScreen: { tontineUid: string };
   SavingsContributeScreen: { tontineUid: string; periodUid: string };
   SavingsWithdrawScreen: { tontineUid: string };
+  NotificationsScreen: undefined;
   PaymentReminderScreen: {
     tontineUid: string;
     tontineName: string;

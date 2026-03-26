@@ -69,6 +69,19 @@ describe('getPrimaryActionKind', () => {
       )
     ).toBe('RESPOND');
   });
+
+  it('ne propose pas NEW_ROTATION pour une tontine EPARGNE (organisateur)', () => {
+    expect(
+      getPrimaryActionKind(
+        makeItem({
+          type: 'EPARGNE',
+          status: 'BETWEEN_ROUNDS',
+          membershipRole: 'CREATOR',
+          isCreator: true,
+        })
+      )
+    ).toBe('MANAGE');
+  });
 });
 
 describe('sortTontinesForList', () => {

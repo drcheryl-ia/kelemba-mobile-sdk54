@@ -41,6 +41,7 @@ import { useNotificationHandler } from '@/hooks/useNotificationHandler';
 import { TontineListScreen } from '@/screens/tontines';
 import { ContributionHistoryScreen } from '@/screens/payments';
 import { NotificationsScreen } from '@/screens/notifications';
+import { SavingsTrackingScreen } from '@/screens/savings/SavingsTrackingScreen';
 import { ProfileStack } from '@/navigation/ProfileStack';
 import {
   CreateTontineScreen,
@@ -223,7 +224,6 @@ const TAB_BAR_BOTTOM_OFFSET = 8;
 
 function MainTabsNavigator() {
   useUnreadCountSync();
-  const unreadCount = useSelector((s: RootState) => s.notifications.unreadCount);
   const cashPendingCount = useOrganizerCashPendingBadgeCount();
   const insets = useSafeAreaInsets();
   const tabBarBottom = Math.max(insets.bottom - TAB_BAR_BOTTOM_OFFSET, 0);
@@ -238,11 +238,7 @@ function MainTabsNavigator() {
         tabBarActiveTintColor: t.tabBarActive,
         tabBarInactiveTintColor: t.tabBarInactive,
         tabBarBadge:
-          route.name === 'History' && unreadCount > 0
-            ? unreadCount
-            : route.name === 'Payments' && cashPendingCount > 0
-              ? cashPendingCount
-              : undefined,
+          route.name === 'Payments' && cashPendingCount > 0 ? cashPendingCount : undefined,
         tabBarBadgeStyle: { backgroundColor: t.danger },
         tabBarLabel:
           route.name === 'Payments' && cashPendingCount > 0
@@ -253,8 +249,8 @@ function MainTabsNavigator() {
                 ? 'Tontines'
                 : route.name === 'Payments'
                   ? 'Paiements'
-                  : route.name === 'History'
-                    ? 'Notifs'
+                  : route.name === 'SavingsTracking'
+                    ? 'Suivi épargnes'
                     : route.name === 'Profile'
                       ? 'Compte'
                       : route.name,
@@ -297,7 +293,7 @@ function MainTabsNavigator() {
             Dashboard: focused ? 'home' : 'home-outline',
             Tontines: focused ? 'people' : 'people-outline',
             Payments: focused ? 'wallet' : 'wallet-outline',
-            History: focused ? 'notifications' : 'notifications-outline',
+            SavingsTracking: focused ? 'analytics' : 'analytics-outline',
             Profile: focused ? 'person-circle' : 'person-circle-outline',
           };
           const iconColor = color ?? (focused ? t.iconActive : t.iconInactive);
@@ -317,7 +313,7 @@ function MainTabsNavigator() {
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Tontines" component={TontineListScreen} />
       <Tab.Screen name="Payments" component={ContributionHistoryScreen} />
-      <Tab.Screen name="History" component={NotificationsScreen} />
+      <Tab.Screen name="SavingsTracking" component={SavingsTrackingScreen} />
       <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
@@ -387,6 +383,11 @@ export const AppNavigator: React.FC = () => {
           )}
         </RootStack.Screen>
         <RootStack.Screen name="MainTabs" component={MainTabsNavigator} />
+        <RootStack.Screen
+          name="NotificationsScreen"
+          component={NotificationsScreen}
+          options={{ headerShown: false, presentation: 'card' }}
+        />
         <RootStack.Screen name="TontineTypeSelectionScreen" component={TontineTypeSelectionScreen} />
         <RootStack.Screen name="CreateTontine" component={CreateTontineScreen} />
         <RootStack.Screen name="TontineDetails" component={TontineDetailsScreen} />

@@ -1,5 +1,6 @@
 import type { OrganizerCashPendingAction } from '@/api/cashPaymentApi';
 import type { PaymentHistoryItem, TontineListItem } from '@/types/tontine';
+import { organizerCashPrimaryTotal } from '@/utils/paymentAmountDisplay';
 
 export type ViewerRoleInTontine = 'MEMBER' | 'CREATOR' | 'UNKNOWN';
 export type PaymentRoleFilterOption = 'all' | 'member' | 'creator';
@@ -178,7 +179,7 @@ export function groupOrganizerCashActions(
     const existing = groups.get(key);
     if (existing) {
       existing.items.push(action);
-      existing.totalAmount += action.amount;
+      existing.totalAmount += organizerCashPrimaryTotal(action);
       existing.count += 1;
       if (
         existing.newestSubmittedAt == null ||
@@ -193,7 +194,7 @@ export function groupOrganizerCashActions(
     groups.set(key, {
       tontineUid: action.tontineUid,
       tontineName: action.tontineName,
-      totalAmount: action.amount,
+      totalAmount: organizerCashPrimaryTotal(action),
       count: 1,
       newestSubmittedAt: action.submittedAt,
       items: [action],

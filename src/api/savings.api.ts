@@ -2,6 +2,7 @@
  * API Tontines Épargne — création, dashboard, versements, retraits.
  */
 import { apiClient } from '@/api/apiClient';
+import { ENDPOINTS } from '@/api/endpoints';
 import type {
   CreateSavingsTontinePayload,
   ContributeSavingsPayload,
@@ -13,53 +14,81 @@ import type {
   SavingsWithdrawalPreview,
 } from '@/types/savings.types';
 
-const BASE = '/v1/savings';
+/** Réponse GET périodes : tableau brut ou enveloppe { periods, data, items }. */
+function parseSavingsPeriodsPayload(data: unknown): SavingsPeriod[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    const o = data as Record<string, unknown>;
+    const nested = o.periods ?? o.data ?? o.items ?? o.results;
+    if (Array.isArray(nested)) return nested as SavingsPeriod[];
+  }
+  return [];
+}
+
+function parseSavingsContributionsPayload(data: unknown): SavingsContribution[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    const o = data as Record<string, unknown>;
+    const nested = o.contributions ?? o.data ?? o.items ?? o.results;
+    if (Array.isArray(nested)) return nested as SavingsContribution[];
+  }
+  return [];
+}
 
 export const savingsApi = {
+  listMy: () => apiClient.get(ENDPOINTS.SAVINGS.LIST.url).then((r) => r.data),
+
   create: (payload: CreateSavingsTontinePayload) =>
-    apiClient.post(`${BASE}`, payload).then((r) => r.data),
+    apiClient.post(ENDPOINTS.SAVINGS.CREATE.url, payload).then((r) => r.data),
 
   join: (tontineUid: string) =>
-    apiClient.post(`${BASE}/${tontineUid}/join`).then((r) => r.data),
+    apiClient.post(ENDPOINTS.SAVINGS.JOIN(tontineUid).url).then((r) => r.data),
 
   getDashboard: (tontineUid: string): Promise<SavingsDashboard> =>
-    apiClient.get(`${BASE}/${tontineUid}/dashboard`).then((r) => r.data),
+    apiClient.get(ENDPOINTS.SAVINGS.DASHBOARD(tontineUid).url).then((r) => r.data),
 
   getMyBalance: (tontineUid: string): Promise<MyBalanceResponse> =>
-    apiClient.get(`${BASE}/${tontineUid}/my-balance`).then((r) => r.data),
+    apiClient.get(ENDPOINTS.SAVINGS.MY_BALANCE(tontineUid).url).then((r) => r.data),
 
   getPeriods: (tontineUid: string): Promise<SavingsPeriod[]> =>
-    apiClient.get(`${BASE}/${tontineUid}/periods`).then((r) => r.data),
+    apiClient
+      .get(ENDPOINTS.SAVINGS.PERIODS(tontineUid).url)
+      .then((r) => parseSavingsPeriodsPayload(r.data)),
 
   getContributions: (
     tontineUid: string,
     periodUid: string
   ): Promise<SavingsContribution[]> =>
     apiClient
-      .get(`${BASE}/${tontineUid}/periods/${periodUid}/contributions`)
-      .then((r) => r.data),
+      .get(ENDPOINTS.SAVINGS.CONTRIBUTIONS(tontineUid, periodUid).url)
+      .then((r) => parseSavingsContributionsPayload(r.data)),
 
   contribute: (tontineUid: string, payload: ContributeSavingsPayload) =>
     apiClient
-      .post(`${BASE}/${tontineUid}/contribute`, payload)
+      .post(ENDPOINTS.SAVINGS.CONTRIBUTE(tontineUid).url, payload)
       .then((r) => r.data),
 
   getWithdrawalPreview: (
     tontineUid: string
   ): Promise<SavingsWithdrawalPreview> =>
-    apiClient.get(`${BASE}/${tontineUid}/withdraw/preview`).then((r) => r.data),
+    apiClient
+      .get(ENDPOINTS.SAVINGS.WITHDRAW_PREVIEW(tontineUid).url)
+      .then((r) => r.data),
 
   requestWithdrawal: (
     tontineUid: string,
     payload: RequestWithdrawalPayload
   ) =>
-    apiClient.post(`${BASE}/${tontineUid}/withdraw`, payload).then((r) => r.data),
+    apiClient
+      .post(ENDPOINTS.SAVINGS.WITHDRAW(tontineUid).url, payload)
+      .then((r) => r.data),
 
   requestEarlyExit: (
     tontineUid: string,
+    memberUid: string,
     payload: RequestWithdrawalPayload
   ) =>
     apiClient
-      .post(`${BASE}/${tontineUid}/members/early-exit`, payload)
+      .post(ENDPOINTS.SAVINGS.EARLY_EXIT(tontineUid, memberUid).url, payload)
       .then((r) => r.data),
 };

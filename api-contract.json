@@ -558,7 +558,7 @@
     },
     "/api/v1/payments/my-history": {
       "get": {
-        "description": "Retourne la liste des paiements de l'utilisateur connecté, avec pagination et filtre optionnel par statut.",
+        "description": "Liste des paiements de l’utilisateur (tous canaux, y compris espèces validés/refusés). Filtres optionnels : statut, période (from/to sur createdAt), moyen (method), tri (sortOrder sur createdAt).",
         "operationId": "PaymentsController_getMyHistory_v1",
         "parameters": [
           {
@@ -597,6 +597,55 @@
                 "COMPLETED",
                 "FAILED",
                 "REFUNDED"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "Début de période (filtrage sur createdAt du paiement), ISO 8601",
+            "schema": {
+              "example": "2026-01-01T00:00:00.000Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "Fin de période (filtrage sur createdAt), ISO 8601",
+            "schema": {
+              "example": "2026-12-31T23:59:59.999Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "method",
+            "required": false,
+            "in": "query",
+            "description": "Filtrer par moyen de paiement",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ORANGE_MONEY",
+                "TELECEL_MONEY",
+                "CASH",
+                "SYSTEM"
+              ]
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "description": "Tri sur createdAt",
+            "schema": {
+              "default": "desc",
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
               ]
             }
           }
@@ -746,6 +795,61 @@
         ]
       }
     },
+    "/api/v1/payments/cash/pending-actions": {
+      "get": {
+        "description": "Vue globale pour l’écran Paiements — sans appels par tontine. Tri : soumission la plus récente en premier. Montants : baseAmount (part), penaltyAmount, totalAmount (affichage principal). `amount` = totalAmount (alias).",
+        "operationId": "CashPaymentController_getGlobalPendingActions_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Liste des demandes en attente de décision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashPendingActionsResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Validations espèces en attente (toutes les tontines dont je suis créateur)",
+        "tags": [
+          "Payments — Cash"
+        ]
+      }
+    },
+    "/api/v1/payments/cash/pending-count": {
+      "get": {
+        "operationId": "CashPaymentController_getPendingCount_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashPendingCountResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Nombre de validations espèces en attente (badge menu organisateur)",
+        "tags": [
+          "Payments — Cash"
+        ]
+      }
+    },
     "/api/v1/payments/cash/initiate": {
       "post": {
         "operationId": "CashPaymentController_initiate_v1",
@@ -817,6 +921,7 @@
     },
     "/api/v1/payments/cash/pending/{tontineUid}": {
       "get": {
+        "description": "Montants : baseAmount (part), penaltyAmount, totalAmount (affichage principal). `amount` = totalAmount (alias).",
         "operationId": "CashPaymentController_getPending_v1",
         "parameters": [
           {
@@ -830,7 +935,17 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Demandes en attente pour cette tontine",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CashPendingByTontineItemDto"
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -992,6 +1107,47 @@
         ]
       }
     },
+    "/api/v1/notifications/archive": {
+      "post": {
+        "description": "Archive logiquement les notifications du propriétaire. Les uids inconnus, déjà archivés ou appartenant à un autre utilisateur sont ignorés dans le compteur `archived`.",
+        "operationId": "NotificationsController_archiveMany_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveNotificationsBodyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Résumé de l’opération",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveNotificationsResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Corps invalide"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Archiver plusieurs notifications (soft delete)",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
     "/api/v1/notifications/devices/{tokenUid}": {
       "delete": {
         "description": "Retire un appareil de la liste des appareils recevant les push.",
@@ -1028,7 +1184,7 @@
     },
     "/api/v1/notifications/unread-count": {
       "get": {
-        "description": "Retourne le nombre de notifications non lues pour l'utilisateur connecté.",
+        "description": "Retourne le nombre de notifications non lues pour l'utilisateur connecté (hors notifications archivées).",
         "operationId": "NotificationsController_getUnreadCount_v1",
         "parameters": [],
         "responses": {
@@ -1049,7 +1205,7 @@
     },
     "/api/v1/notifications/{uid}/read": {
       "patch": {
-        "description": "Marque la notification comme lue. Seul le propriétaire peut effectuer cette action.",
+        "description": "Marque la notification comme lue. Seul le propriétaire peut effectuer cette action. Idempotent si déjà lue. Refusé si la notification est archivée.",
         "operationId": "NotificationsController_markAsRead_v1",
         "parameters": [
           {
@@ -1064,10 +1220,10 @@
         ],
         "responses": {
           "204": {
-            "description": "Notification marquée lue"
+            "description": "Notification marquée lue (ou déjà lue)"
           },
           "400": {
-            "description": "Notification ne vous appartient pas"
+            "description": "Notification ne vous appartient pas, ou archivée"
           },
           "404": {
             "description": "Notification introuvable"
@@ -1084,9 +1240,46 @@
         ]
       }
     },
+    "/api/v1/notifications/{uid}": {
+      "delete": {
+        "description": "Masque la notification pour l’utilisateur (`archivedAt`) sans suppression physique. Idempotent si déjà archivée (204).",
+        "operationId": "NotificationsController_archiveOne_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la notification",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Notification archivée ou déjà archivée"
+          },
+          "400": {
+            "description": "Notification ne vous appartient pas"
+          },
+          "404": {
+            "description": "Notification introuvable"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Archiver une notification (soft delete)",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
     "/api/v1/notifications": {
       "get": {
-        "description": "Retourne la liste paginée des notifications de l'utilisateur connecté.",
+        "description": "Retourne la liste paginée des notifications de l'utilisateur connecté (non archivées), triées par `createdAt` décroissant.",
         "operationId": "NotificationsController_getNotifications_v1",
         "parameters": [
           {
@@ -2301,6 +2494,7 @@
     },
     "/api/v1/cycles/{cycleUid}/payout/step-up-token": {
       "post": {
+        "description": "Flux mobile recommandé : (1) biométrie / saisie PIN côté app ; (2) appeler cet endpoint avec le PIN (corps JSON) ; (3) récupérer securityConfirmationToken (JWT ~120 s, usage unique) ; (4) appeler POST .../payout avec ce jeton, idempotencyKey (UUID v4) et les champs métier. Ne pas envoyer le PIN sur POST .../payout. Pour CASH, cashConfirmed: true reste obligatoire en plus du jeton (ce n’est pas un substitut au step-up).",
         "operationId": "CyclesController_issuePayoutStepUpToken_v1",
         "parameters": [
           {
@@ -2419,6 +2613,125 @@
         "summary": "Déclencher le versement au bénéficiaire (collecte complète requise)",
         "tags": [
           "Cycles"
+        ]
+      }
+    },
+    "/api/v1/reports/my-participations-overview": {
+      "get": {
+        "operationId": "ReportsController_getMyParticipationsOverview_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParticipationsOverviewResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "KYC non vérifié"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Vue consolidée Suivi épargnes / rotatif (soldes, bonus indicatifs, agrégats)",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/v1/reports/my-participations": {
+      "get": {
+        "operationId": "ReportsController_getMyParticipations_v1",
+        "parameters": [
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "json",
+              "type": "string",
+              "enum": [
+                "json",
+                "csv",
+                "pdf"
+              ]
+            }
+          },
+          {
+            "name": "role",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "member",
+                "organizer",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "savings",
+                "rotative",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "startDate",
+            "required": false,
+            "in": "query",
+            "description": "Début de période (ISO 8601, date)",
+            "schema": {
+              "example": "2026-01-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "required": false,
+            "in": "query",
+            "description": "Fin de période (ISO 8601, date)",
+            "schema": {
+              "example": "2026-12-31",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON ou flux CSV selon format"
+          },
+          "403": {
+            "description": "KYC non vérifié"
+          },
+          "501": {
+            "description": "format=pdf non implémenté"
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Rapport de participations (JSON ou CSV ; PDF non disponible pour ce rapport agrégé)",
+        "tags": [
+          "Reports"
         ]
       }
     },
@@ -3607,6 +3920,135 @@
         ]
       }
     },
+    "/api/v1/savings/{uid}/withdrawal-preview": {
+      "get": {
+        "operationId": "SavingsController_getWithdrawalPreview_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalPreviewResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non membre."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Aperçu indicatif de retrait (capital, bonus interne, pénalité)",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/projection": {
+      "get": {
+        "operationId": "SavingsController_getProjection_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavingsProjectionResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non membre."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Projection indicative (versements restants, bonus interne)",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
+    "/api/v1/savings/{uid}/bonus-pool": {
+      "get": {
+        "operationId": "SavingsController_getBonusPool_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavingsBonusPoolResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non membre."
+          },
+          "404": {
+            "description": "Tontine introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Lecture du fonds bonus commun (membre)",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
     "/api/v1/savings/{uid}": {
       "get": {
         "operationId": "SavingsController_getSavingsDetail_v1",
@@ -3985,6 +4427,54 @@
         ]
       }
     },
+    "/api/v1/savings/{uid}/members/{memberUid}/reinstate": {
+      "post": {
+        "operationId": "SavingsController_reinstateMember_v1",
+        "parameters": [
+          {
+            "name": "uid",
+            "required": true,
+            "in": "path",
+            "description": "UUID de la tontine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberUid",
+            "required": true,
+            "in": "path",
+            "description": "UUID du membre",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Membre réactivé."
+          },
+          "400": {
+            "description": "Statut membre invalide."
+          },
+          "403": {
+            "description": "Non créateur."
+          },
+          "404": {
+            "description": "Tontine ou membre introuvable."
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Réactiver un membre suspendu (créateur uniquement)",
+        "tags": [
+          "Tontines — Épargne"
+        ]
+      }
+    },
     "/api/v1/savings/{uid}/members/{memberUid}/early-exit": {
       "post": {
         "operationId": "SavingsController_requestEarlyExit_v1",
@@ -4215,7 +4705,7 @@
           },
           "penaltyAmount": {
             "type": "number",
-            "description": "Pénalité de retard applicable (FCFA). Doit être 0 tant qu’un paiement espèces est en attente de validation organisateur (PENDING/PROCESSING) pour cette obligation — le retard d’échéance n’accumule pas de pénalité dans cet état.",
+            "description": "Pénalité de retard applicable (FCFA)",
             "example": 500
           },
           "totalAmountDue": {
@@ -4229,19 +4719,52 @@
             "example": 15500
           },
           "dueDate": {
-            "type": "string",
-            "description": "Date d’échéance du cycle (YYYY-MM-DD)",
-            "example": "2026-03-15"
+            "type": "object",
+            "description": "Échéance du cycle sur lequel il reste quelque chose à payer (YYYY-MM-DD). Null en mode prévision (cotisation courante soldée).",
+            "example": "2026-03-15",
+            "nullable": true
           },
           "currentDueDate": {
-            "type": "string",
-            "description": "Identique à dueDate (source de vérité échéance courante)",
-            "example": "2026-03-15"
+            "type": "object",
+            "description": "Alias de dueDate : échéance actuellement « due » si dette, sinon null.",
+            "example": "2026-03-15",
+            "nullable": true
           },
           "nextDueDate": {
-            "type": "string",
-            "description": "Prochaine échéance pertinente (= échéance du cycle dû courant)",
-            "example": "2026-03-15"
+            "type": "object",
+            "description": "Prochaine échéance planifiée dans le futur (cycle PENDING suivant dans la rotation). Null si aucun cycle suivant.",
+            "example": "2026-04-15",
+            "nullable": true
+          },
+          "nextScheduledCycleDate": {
+            "type": "object",
+            "description": "Date du prochain cycle PENDING dans la rotation (souvent alignée avec nextDueDate).",
+            "example": "2026-04-15",
+            "nullable": true
+          },
+          "hasPaymentDue": {
+            "type": "boolean",
+            "description": "True si le membre a encore un reste à payer sur le cycle opérationnel courant (voir PenaltyCalculator : PROCESSING compte dans amountPaid)."
+          },
+          "currentCycleUid": {
+            "type": "object",
+            "description": "UUID du cycle opérationnel courant (ACTIVE / PAYOUT_IN_PROGRESS), si présent.",
+            "nullable": true
+          },
+          "currentCycleNumber": {
+            "type": "object",
+            "description": "Numéro du cycle opérationnel courant, si présent.",
+            "nullable": true
+          },
+          "nextCycleUid": {
+            "type": "object",
+            "description": "UUID du prochain cycle PENDING dans la rotation, si présent.",
+            "nullable": true
+          },
+          "nextCycleNumber": {
+            "type": "object",
+            "description": "Numéro du prochain cycle PENDING, si présent.",
+            "nullable": true
           },
           "cycleStatus": {
             "type": "string",
@@ -4318,9 +4841,7 @@
           "penaltyAmount",
           "totalAmountDue",
           "totalDue",
-          "dueDate",
-          "currentDueDate",
-          "nextDueDate",
+          "hasPaymentDue",
           "cycleStatus",
           "isOverdue",
           "isInGracePeriod",
@@ -4490,7 +5011,7 @@
           },
           "amount": {
             "type": "number",
-            "description": "Montant de la cotisation en FCFA (entier, minimum 500)",
+            "description": "Montant total en FCFA à payer pour ce cycle (entier, minimum 500) : reste de cotisation de base + pénalité de retard éventuelle. Plafond : total exigible indiqué par GET /users/me/next-payment (totalAmountDue).",
             "example": 5000
           },
           "method": {
@@ -4555,6 +5076,150 @@
           "status"
         ]
       },
+      "CashPendingActionItemDto": {
+        "type": "object",
+        "properties": {
+          "validationRequestUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "paymentUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tontineUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tontineName": {
+            "type": "string"
+          },
+          "cycleUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cycleNumber": {
+            "type": "number"
+          },
+          "memberUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "memberName": {
+            "type": "string"
+          },
+          "memberPhone": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "baseAmount": {
+            "type": "number",
+            "description": "Part de cotisation hors pénalité (FCFA).",
+            "example": 5000
+          },
+          "penaltyAmount": {
+            "type": "number",
+            "description": "Pénalité appliquée sur ce paiement (FCFA).",
+            "example": 0
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "Total à valider / affichage principal : part + pénalité (FCFA).",
+            "example": 5000
+          },
+          "amount": {
+            "type": "number",
+            "description": "Alias de `totalAmount` pour rétrocompatibilité (même valeur que totalAmount).",
+            "example": 5000
+          },
+          "paymentMethod": {
+            "type": "string",
+            "enum": [
+              "ORANGE_MONEY",
+              "TELECEL_MONEY",
+              "CASH",
+              "SYSTEM"
+            ],
+            "example": "CASH"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_REVIEW",
+              "APPROVED",
+              "REJECTED"
+            ],
+            "description": "Statut demande de validation"
+          },
+          "receiptPhotoUrl": {
+            "type": "object",
+            "nullable": true
+          },
+          "receiverName": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "object",
+            "nullable": true
+          },
+          "longitude": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "validationRequestUid",
+          "paymentUid",
+          "tontineUid",
+          "tontineName",
+          "cycleUid",
+          "cycleNumber",
+          "memberUid",
+          "memberName",
+          "memberPhone",
+          "submittedAt",
+          "baseAmount",
+          "penaltyAmount",
+          "totalAmount",
+          "amount",
+          "paymentMethod",
+          "status",
+          "receiptPhotoUrl",
+          "receiverName",
+          "latitude",
+          "longitude"
+        ]
+      },
+      "CashPendingActionsResponseDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CashPendingActionItemDto"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "CashPendingCountResponseDto": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "number",
+            "example": 3,
+            "description": "Nombre de validations cash en attente"
+          }
+        },
+        "required": [
+          "count"
+        ]
+      },
       "InitiateCashBodyDto": {
         "type": "object",
         "properties": {
@@ -4597,6 +5262,161 @@
           "amount",
           "idempotencyKey",
           "receiverName"
+        ]
+      },
+      "CashPendingMemberBriefDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "fullName",
+          "phone"
+        ]
+      },
+      "CashPendingCycleBriefDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cycleNumber": {
+            "type": "number"
+          },
+          "expectedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "uid",
+          "cycleNumber",
+          "expectedDate"
+        ]
+      },
+      "CashPendingPaymentSliceDto": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "baseAmount": {
+            "type": "number",
+            "description": "Part de cotisation (FCFA)."
+          },
+          "penaltyAmount": {
+            "type": "number",
+            "description": "Pénalité (FCFA)."
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "Total à valider (FCFA)."
+          },
+          "amount": {
+            "type": "number",
+            "description": "Alias de `totalAmount` pour rétrocompatibilité."
+          }
+        },
+        "required": [
+          "uid",
+          "createdAt",
+          "baseAmount",
+          "penaltyAmount",
+          "totalAmount",
+          "amount"
+        ]
+      },
+      "CashPendingByTontineItemDto": {
+        "type": "object",
+        "properties": {
+          "validationRequestUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_REVIEW",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "receiptPhotoUrl": {
+            "type": "object",
+            "nullable": true
+          },
+          "receiverName": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "object",
+            "nullable": true
+          },
+          "longitude": {
+            "type": "object",
+            "nullable": true
+          },
+          "baseAmount": {
+            "type": "number",
+            "description": "Part de cotisation (FCFA)."
+          },
+          "penaltyAmount": {
+            "type": "number",
+            "description": "Pénalité (FCFA)."
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "Total à valider : part + pénalité (FCFA)."
+          },
+          "amount": {
+            "type": "number",
+            "description": "Alias de `totalAmount` pour rétrocompatibilité."
+          },
+          "member": {
+            "$ref": "#/components/schemas/CashPendingMemberBriefDto"
+          },
+          "cycle": {
+            "$ref": "#/components/schemas/CashPendingCycleBriefDto"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/CashPendingPaymentSliceDto"
+          }
+        },
+        "required": [
+          "validationRequestUid",
+          "submittedAt",
+          "status",
+          "receiptPhotoUrl",
+          "receiverName",
+          "latitude",
+          "longitude",
+          "baseAmount",
+          "penaltyAmount",
+          "totalAmount",
+          "amount",
+          "member",
+          "cycle",
+          "payment"
         ]
       },
       "SubmitCashProofBodyDto": {
@@ -4812,6 +5632,51 @@
           "platform"
         ]
       },
+      "ArchiveNotificationsBodyDto": {
+        "type": "object",
+        "properties": {
+          "uids": {
+            "description": "UUID des notifications à archiver (soft delete)",
+            "example": [
+              "550e8400-e29b-41d4-a716-446655440000",
+              "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "uids"
+        ]
+      },
+      "ArchiveNotificationsResultDto": {
+        "type": "object",
+        "properties": {
+          "requested": {
+            "type": "number",
+            "description": "Nombre d’identifiants dans le corps de la requête",
+            "example": 3
+          },
+          "archived": {
+            "type": "number",
+            "description": "Nombre de lignes réellement passées en archivé lors de cet appel",
+            "example": 2
+          },
+          "ignored": {
+            "type": "number",
+            "description": "Demandes non traitées comme nouvel archivage : déjà archivées, absentes, autre utilisateur, ou doublons dans la liste",
+            "example": 1
+          }
+        },
+        "required": [
+          "requested",
+          "archived",
+          "ignored"
+        ]
+      },
       "CreateTontineDto": {
         "type": "object",
         "properties": {
@@ -4956,6 +5821,113 @@
             "description": "Cycle courant ou prochain",
             "nullable": true
           },
+          "hasPaymentDue": {
+            "type": "boolean",
+            "description": "True si le membre a un reste à payer sur le cycle opérationnel courant (même règle que next-payment / PenaltyCalculator)."
+          },
+          "currentCyclePaymentStatus": {
+            "type": "string",
+            "description": "Statut UX sur le cycle courant : obligation (DUE/OVERDUE/PENALIZED), soldé (PAID), ou prochain cycle sans opérationnel (UPCOMING).",
+            "enum": [
+              "DUE",
+              "OVERDUE",
+              "PENALIZED",
+              "PAID",
+              "UPCOMING"
+            ]
+          },
+          "currentCycleExpectedDate": {
+            "type": "object",
+            "description": "Date d’échéance du cycle opérationnel courant (YYYY-MM-DD), si un tel cycle existe.",
+            "nullable": true
+          },
+          "nextPaymentDate": {
+            "type": "object",
+            "description": "Date UX unique à afficher : cycle courant si dette, sinon prochain cycle PENDING, sinon null.",
+            "nullable": true
+          },
+          "currentCycleUid": {
+            "type": "object",
+            "description": "UUID du cycle opérationnel courant (collecte / payout — ACTIVE ou PAYOUT_IN_PROGRESS), si présent.",
+            "nullable": true
+          },
+          "currentCycleNumber": {
+            "type": "object",
+            "description": "Numéro du cycle opérationnel courant pour la collecte.",
+            "nullable": true
+          },
+          "currentCycleStatus": {
+            "type": "object",
+            "description": "Statut du cycle opérationnel courant (ACTIVE, PAYOUT_IN_PROGRESS, …). Le champ `currentCycle` imbriqué peut représenter le prochain PENDING pour l’UX échéances.",
+            "nullable": true
+          },
+          "collectionProgress": {
+            "type": "object",
+            "description": "Progression de collecte du cycle courant (0–100+, aligné sur checkCycleCompletion / completionRate).",
+            "nullable": true
+          },
+          "collectedAmount": {
+            "type": "object",
+            "description": "Montant de cotisation de base déjà encaissé sur le cycle courant (hors SYSTEM).",
+            "nullable": true
+          },
+          "expectedAmount": {
+            "type": "object",
+            "description": "Objectif de collecte brute attendu pour le cycle courant (parts × montant part).",
+            "nullable": true
+          },
+          "netPayoutAmount": {
+            "type": "object",
+            "description": "Montant à verser au bénéficiaire (FCFA) : total collecté du cycle (cotisations + pénalités), **même sémantique** que `payout-organizer-state` → `netPayoutAmount`. Source : `checkCycleCompletion`.",
+            "nullable": true
+          },
+          "grossCollectedAmount": {
+            "type": "object",
+            "description": "Brut cagnotte (cotisations base + pénalités encaissées), aligné sur `payout-organizer-state` → `grossCollectedAmount`.",
+            "nullable": true
+          },
+          "beneficiaryNetAmount": {
+            "type": "object",
+            "description": "Alias historique : identique à `netPayoutAmount`. Préférer `netPayoutAmount` pour cohérence avec l’endpoint organisateur.",
+            "nullable": true,
+            "deprecated": true
+          },
+          "canTriggerPayout": {
+            "type": "boolean",
+            "description": "True si l’utilisateur connecté est le créateur, la collecte est complète, le cycle est ACTIVE et aucun payout outbox COMPLETED."
+          },
+          "nextBeneficiaryUserUid": {
+            "type": "object",
+            "description": "UID utilisateur du prochain bénéficiaire (cycle PENDING suivant), si connu.",
+            "nullable": true
+          },
+          "beneficiaryName": {
+            "type": "object",
+            "description": "Nom affichable du bénéficiaire du cycle courant, si disponible.",
+            "nullable": true
+          },
+          "myRotationOrder": {
+            "type": "number",
+            "description": "Position du membre dans la rotation (`membership.rotationOrder`), 1..n."
+          },
+          "myPayoutCycleNumber": {
+            "type": "object",
+            "description": "Numéro du cycle où ce membre reçoit la cagnotte (prochain passage pertinent : ACTIVE/PAYOUT en cours ou premier PENDING).",
+            "nullable": true
+          },
+          "myScheduledPayoutDate": {
+            "type": "object",
+            "description": "Date prévue (`expectedDate` du cycle) pour ce passage bénéficiaire, issue des cycles persistés.",
+            "nullable": true
+          },
+          "isMyTurnNow": {
+            "type": "boolean",
+            "description": "True si le cycle opérationnel courant a ce membre comme bénéficiaire (`beneficiaryMembershipId`)."
+          },
+          "payoutStatusLabel": {
+            "type": "string",
+            "description": "Indicateur UX : MON_TOUR | À_VENIR | EN_COURS — absent si pas de cycle bénéficiaire pour ce membre."
+          },
           "startDate": {
             "type": "string",
             "description": "Date de début (YYYY-MM-DD)"
@@ -4975,6 +5947,10 @@
           "isCreator",
           "canInvite",
           "currentCycle",
+          "hasPaymentDue",
+          "currentCyclePaymentStatus",
+          "myRotationOrder",
+          "isMyTurnNow",
           "startDate"
         ]
       },
@@ -5492,11 +6468,16 @@
           },
           "netPayoutAmount": {
             "type": "number",
-            "description": "Montant net à virer (FCFA)"
+            "description": "Montant à verser au bénéficiaire (FCFA) : total collecté du cycle (cotisations + pénalités), via `checkCycleCompletion` — aligné avec `GET /tontines/me` → `netPayoutAmount`."
+          },
+          "beneficiaryName": {
+            "type": "object",
+            "description": "Nom affichable du **bénéficiaire du cycle courant** (celui associé à ce `cycleUid`), pas le prochain bénéficiaire. Null si aucun bénéficiaire assigné.",
+            "nullable": true
           },
           "grossCollectedAmount": {
             "type": "number",
-            "description": "Brut cagnotte (base + pénalités)"
+            "description": "Brut cagnotte : cotisations de base + pénalités encaissées (`grossCollected` de `checkCycleCompletion`)."
           },
           "nextDueDate": {
             "type": "object",
@@ -5558,6 +6539,113 @@
           "paymentMethod",
           "idempotencyKey",
           "securityConfirmationToken"
+        ]
+      },
+      "ParticipationsOverviewSummaryDto": {
+        "type": "object",
+        "properties": {
+          "totalSavingsBalance": {
+            "type": "number"
+          },
+          "totalSavingsPenalties": {
+            "type": "number"
+          },
+          "totalSavingsBonusEstimated": {
+            "type": "number",
+            "description": "Bonus interne indicatif (fonds commun), non garanti."
+          },
+          "totalSavingsBonusRealized": {
+            "type": "number",
+            "description": "Bonus interne déjà distribué (constaté)."
+          },
+          "totalRotativePayoutsReceived": {
+            "type": "number",
+            "description": "Cagnottes rotatives reçues (versements bénéficiaires), hors cotisations."
+          },
+          "activeAsMemberCount": {
+            "type": "number"
+          },
+          "activeAsOrganizerCount": {
+            "type": "number"
+          },
+          "activeSavingsCount": {
+            "type": "number"
+          },
+          "activeRotativeCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "totalSavingsBalance",
+          "totalSavingsPenalties",
+          "totalSavingsBonusEstimated",
+          "totalSavingsBonusRealized",
+          "totalRotativePayoutsReceived",
+          "activeAsMemberCount",
+          "activeAsOrganizerCount",
+          "activeSavingsCount",
+          "activeRotativeCount"
+        ]
+      },
+      "ParticipationsReportsMetaDto": {
+        "type": "object",
+        "properties": {
+          "canGenerateParticipationReport": {
+            "type": "boolean"
+          },
+          "availableFormats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "participationReportEndpoints": {
+            "type": "object"
+          },
+          "certificatePdfEndpoint": {
+            "type": "string"
+          },
+          "bonusDisclosure": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "canGenerateParticipationReport",
+          "availableFormats",
+          "participationReportEndpoints",
+          "certificatePdfEndpoint",
+          "bonusDisclosure"
+        ]
+      },
+      "ParticipationsOverviewResponseDto": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/ParticipationsOverviewSummaryDto"
+          },
+          "savingsTontines": {
+            "type": "array",
+            "description": "Liste des participations épargne (détail JSON).",
+            "items": {
+              "type": "object"
+            }
+          },
+          "rotativeTontines": {
+            "type": "array",
+            "description": "Liste des participations rotatives (détail JSON).",
+            "items": {
+              "type": "object"
+            }
+          },
+          "reports": {
+            "$ref": "#/components/schemas/ParticipationsReportsMetaDto"
+          }
+        },
+        "required": [
+          "summary",
+          "savingsTontines",
+          "rotativeTontines",
+          "reports"
         ]
       },
       "AdminBanDto": {
@@ -5742,6 +6830,129 @@
           "frequency",
           "startDate",
           "unlockDate"
+        ]
+      },
+      "WithdrawalPreviewResponseDto": {
+        "type": "object",
+        "properties": {
+          "capitalAmount": {
+            "type": "number",
+            "description": "Capital personnel net courant (FCFA entiers)."
+          },
+          "estimatedBonusAmount": {
+            "type": "number",
+            "description": "Quote-part bonus enregistrée sur le fonds interne (non distribuée), si applicable. Aucun rendement garanti."
+          },
+          "penaltyAmount": {
+            "type": "number",
+            "description": "Pénalité sortie anticipée (FCFA), 0 si retrait standard."
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "Montant net indicatif capital + bonus − pénalité (FCFA). Non garanti avant exécution."
+          },
+          "canWithdraw": {
+            "type": "boolean",
+            "description": "Si un retrait peut être demandé immédiatement."
+          },
+          "reasonIfBlocked": {
+            "type": "object",
+            "description": "Raison si canWithdraw est false.",
+            "nullable": true
+          },
+          "isEarlyExitPossible": {
+            "type": "boolean",
+            "description": "Sortie anticipée possible (tontine ACTIVE, avant date de déblocage)."
+          },
+          "unlockDate": {
+            "format": "date-time",
+            "type": "string",
+            "description": "Date de déblocage planifiée (capital + bonus selon règles)."
+          },
+          "previewDisclosure": {
+            "type": "string",
+            "description": "Rappel réglementaire : montants indicatifs, bonus interne uniquement."
+          }
+        },
+        "required": [
+          "capitalAmount",
+          "estimatedBonusAmount",
+          "penaltyAmount",
+          "totalAmount",
+          "canWithdraw",
+          "isEarlyExitPossible",
+          "unlockDate",
+          "previewDisclosure"
+        ]
+      },
+      "SavingsProjectionResponseDto": {
+        "type": "object",
+        "properties": {
+          "totalContributed": {
+            "type": "number",
+            "description": "Total déjà versé (net cumulé enregistré)."
+          },
+          "remainingPeriodsCount": {
+            "type": "number",
+            "description": "Nombre de périodes restantes (PENDING + OPEN)."
+          },
+          "minimumRemainingAmount": {
+            "type": "number",
+            "description": "Somme des minimums des périodes restantes (FCFA) — engagement à honorer si versements au minimum."
+          },
+          "estimatedFinalCapital": {
+            "type": "number",
+            "description": "Capital net estimé à l’échéance si chaque période restante est honorée au minimum (indicatif)."
+          },
+          "estimatedBonus": {
+            "type": "number",
+            "description": "Part indicative du fonds bonus interne à l’échéance (proportionnelle au capital net, non garantie)."
+          },
+          "estimatedPayout": {
+            "type": "number",
+            "description": "Montant total indicatif (capital estimé + bonus estimé). Aucune promesse de rendement."
+          },
+          "projectionDisclosure": {
+            "type": "string",
+            "description": "Avertissement : projections internes au mécanisme Kelemba, bonus = pool commun uniquement."
+          }
+        },
+        "required": [
+          "totalContributed",
+          "remainingPeriodsCount",
+          "minimumRemainingAmount",
+          "estimatedFinalCapital",
+          "estimatedBonus",
+          "estimatedPayout",
+          "projectionDisclosure"
+        ]
+      },
+      "SavingsBonusPoolResponseDto": {
+        "type": "object",
+        "properties": {
+          "currentBalance": {
+            "type": "number",
+            "description": "Solde courant du fonds bonus commun (FCFA)."
+          },
+          "alreadyDistributed": {
+            "type": "number",
+            "description": "Montant déjà versé aux membres (lignes de distribution marquées distribuées)."
+          },
+          "eligibleMembersCount": {
+            "type": "number",
+            "description": "Membres actifs éligibles au bonus."
+          },
+          "distributionMode": {
+            "type": "string",
+            "description": "Mode de répartition à l’échéance (proportionnel au capital net au moment de la distribution).",
+            "example": "PROPORTIONAL_TO_NET_CAPITAL_AT_DISTRIBUTION"
+          }
+        },
+        "required": [
+          "currentBalance",
+          "alreadyDistributed",
+          "eligibleMembersCount",
+          "distributionMode"
         ]
       },
       "ContributeSavingsDto": {

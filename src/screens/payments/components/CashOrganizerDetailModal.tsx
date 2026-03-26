@@ -13,8 +13,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import type { OrganizerCashPendingAction } from '@/api/cashPaymentApi';
 import { formatFcfa } from '@/utils/formatters';
+import {
+  organizerCashPrimaryTotal,
+  organizerCashShareAmount,
+  organizerCashShowAmountBreakdown,
+} from '@/utils/paymentAmountDisplay';
 import type { CashDecisionAction } from '../organizerCashMutations';
 
 const GREEN = '#1A6B3C';
@@ -50,7 +56,14 @@ export const CashOrganizerDetailModal: React.FC<Props> = ({
   onReject,
   busy,
   busyAction,
-}) => (
+}) => {
+  const { t } = useTranslation();
+  const primaryTotal = row ? organizerCashPrimaryTotal(row) : 0;
+  const share = row ? organizerCashShareAmount(row) : 0;
+  const pen = row?.penaltyAmount ?? 0;
+  const showBreakdown = row ? organizerCashShowAmountBreakdown(row) : false;
+
+  return (
   <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
     <View style={styles.backdrop}>
       <View style={styles.box}>
@@ -62,7 +75,19 @@ export const CashOrganizerDetailModal: React.FC<Props> = ({
         </View>
         {row ? (
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <Text style={styles.amount}>{formatFcfa(row.amount)}</Text>
+            <Text style={styles.amount}>{formatFcfa(primaryTotal)}</Text>
+            {showBreakdown ? (
+              <View style={styles.breakdownBlock}>
+                <Text style={styles.breakdownText}>
+                  {t('paymentsDisplay.partLine', { value: formatFcfa(share) })}
+                </Text>
+                {pen > 0 ? (
+                  <Text style={styles.breakdownPenalty}>
+                    {t('paymentsDisplay.penaltyLine', { value: formatFcfa(pen) })}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             <Text style={styles.label}>Membre</Text>
             <Text style={styles.value}>{row.memberName}</Text>
             <Text style={styles.label}>Tontine</Text>
@@ -123,7 +148,8 @@ export const CashOrganizerDetailModal: React.FC<Props> = ({
       </View>
     </View>
   </Modal>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   backdrop: {
@@ -153,7 +179,21 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '800',
     color: GREEN,
+    marginBottom: 8,
+  },
+  breakdownBlock: {
     marginBottom: 12,
+    gap: 4,
+  },
+  breakdownText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  breakdownPenalty: {
+    fontSize: 14,
+    color: RED,
+    fontWeight: '600',
   },
   label: {
     fontSize: 12,

@@ -4,8 +4,10 @@
 import React from 'react';
 import { Modal, View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import type { PaymentHistoryItem } from '@/types/tontine';
 import { formatFcfa } from '@/utils/formatters';
+import { paymentHistoryPrimaryTotal } from '@/utils/paymentAmountDisplay';
 
 const GREEN = '#1A6B3C';
 
@@ -23,7 +25,11 @@ type Props = {
   item: PaymentHistoryItem | null;
 };
 
-export const PaymentReceiptSummaryModal: React.FC<Props> = ({ visible, onClose, item }) => (
+export const PaymentReceiptSummaryModal: React.FC<Props> = ({ visible, onClose, item }) => {
+  const { t } = useTranslation();
+  const primaryTotal = item ? paymentHistoryPrimaryTotal(item) : 0;
+
+  return (
   <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
     <Pressable style={styles.backdrop} onPress={onClose}>
       <Pressable style={styles.box} onPress={(e) => e.stopPropagation()}>
@@ -37,13 +43,13 @@ export const PaymentReceiptSummaryModal: React.FC<Props> = ({ visible, onClose, 
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={styles.label}>Tontine</Text>
             <Text style={styles.value}>{item.tontineName}</Text>
-            <Text style={styles.label}>Montant</Text>
-            <Text style={styles.amount}>{formatFcfa(item.amount)}</Text>
-            <Text style={styles.label}>Montant total payé</Text>
-            <Text style={styles.value}>{formatFcfa(item.totalPaid)}</Text>
+            <Text style={styles.label}>{t('paymentsDisplay.receiptTotalPaid')}</Text>
+            <Text style={styles.amount}>{formatFcfa(primaryTotal)}</Text>
+            <Text style={styles.label}>{t('paymentsDisplay.receiptShare')}</Text>
+            <Text style={styles.value}>{formatFcfa(item.amount)}</Text>
             {item.penalty > 0 ? (
               <>
-                <Text style={styles.label}>Pénalités</Text>
+                <Text style={styles.label}>{t('paymentsDisplay.receiptPenalties')}</Text>
                 <Text style={styles.penalty}>{formatFcfa(item.penalty)}</Text>
               </>
             ) : null}
@@ -68,7 +74,8 @@ export const PaymentReceiptSummaryModal: React.FC<Props> = ({ visible, onClose, 
       </Pressable>
     </Pressable>
   </Modal>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   backdrop: {

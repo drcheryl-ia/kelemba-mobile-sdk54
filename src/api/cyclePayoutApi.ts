@@ -10,6 +10,7 @@ import { parseApiError } from '@/api/errors/errorHandler';
 import { logger } from '@/utils/logger';
 import type {
   CycleCompletionInfo,
+  CyclePayoutOrganizerState,
   CyclePayoutResponse,
   InitiateCyclePayoutDto,
 } from '@/types/cyclePayout';
@@ -90,6 +91,107 @@ export async function getCycleCompletion(
     const apiErr = parseApiError(err);
     logger.error('[cyclePayout] getCycleCompletion failed', { cycleUid });
     throw apiErr;
+  }
+}
+
+function parseFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+function parseNextDueDateIso(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value !== null) {
+    const o = value as Record<string, unknown>;
+    const d = o.date ?? o.isoDate ?? o.iso ?? o.value;
+    if (typeof d === 'string') return d;
+  }
+  return undefined;
+}
+
+function parsePayoutOrganizerStatePayload(raw: unknown): CyclePayoutOrganizerState {
+  if (raw == null || typeof raw !== 'object') {
+    throw new ApiError(
+      ApiErrorCode.SERVER_ERROR,
+      500,
+      'Réponse payout-organizer-state invalide.'
+    );
+  }
+  const o = raw as Record<string, unknown>;
+  const cycleUid = o.cycleUid;
+  if (typeof cycleUid !== 'string' || cycleUid.length === 0) {
+    throw new ApiError(
+      ApiErrorCode.SERVER_ERROR,
+      500,
+      'Réponse payout-organizer-state invalide (cycleUid).'
+    );
+  }
+  const isCollectionComplete = o.isCollectionComplete === true;
+  const completionPercent = parseFiniteNumber(o.completionPercent);
+  const canOrganizerTriggerPayout = o.canOrganizerTriggerPayout === true;
+  const netPayoutAmount = parseFiniteNumber(o.netPayoutAmount);
+  const grossCollectedAmount = parseFiniteNumber(o.grossCollectedAmount);
+  if (completionPercent === undefined) {
+    throw new ApiError(
+      ApiErrorCode.SERVER_ERROR,
+      500,
+      'Réponse payout-organizer-state invalide (completionPercent).'
+    );
+  }
+  if (netPayoutAmount === undefined || grossCollectedAmount === undefined) {
+    throw new ApiError(
+      ApiErrorCode.SERVER_ERROR,
+      500,
+      'Réponse payout-organizer-state invalide (montants).'
+    );
+  }
+  const beneficiaryPayoutStatus =
+    o.beneficiaryPayoutStatus != null ? String(o.beneficiaryPayoutStatus) : undefined;
+  const payoutOutboxUid =
+    o.payoutOutboxUid != null ? String(o.payoutOutboxUid) : undefined;
+  const nextDue = parseNextDueDateIso(o.nextDueDate);
+  const rawBn = o.beneficiaryName;
+  let beneficiaryName: string | null | undefined;
+  if (rawBn === null) beneficiaryName = null;
+  else if (typeof rawBn === 'string') {
+    const t = rawBn.trim();
+    beneficiaryName = t === '' ? null : t;
+  }
+  const out: CyclePayoutOrganizerState = {
+    cycleUid,
+    isCollectionComplete,
+    completionPercent,
+    canOrganizerTriggerPayout,
+    netPayoutAmount,
+    grossCollectedAmount,
+  };
+  if (beneficiaryPayoutStatus !== undefined) out.beneficiaryPayoutStatus = beneficiaryPayoutStatus;
+  if (payoutOutboxUid !== undefined) out.payoutOutboxUid = payoutOutboxUid;
+  if (nextDue !== undefined) out.nextDueDate = nextDue;
+  if (beneficiaryName !== undefined) out.beneficiaryName = beneficiaryName;
+  return out;
+}
+
+/**
+ * GET /v1/cycles/:cycleUid/payout-organizer-state — montant net et éligibilité réels pour le versement organisateur.
+ */
+export async function getPayoutOrganizerState(
+  cycleUid: string
+): Promise<CyclePayoutOrganizerState> {
+  try {
+    const { url } = ENDPOINTS.CYCLES.PAYOUT_ORGANIZER_STATE(cycleUid);
+    const res = await apiClient.get<unknown>(url);
+    return parsePayoutOrganizerStatePayload(res.data);
+  } catch (err: unknown) {
+    if (ApiError.isApiError(err)) throw err;
+    logger.error('[cyclePayout] getPayoutOrganizerState failed', { cycleUid });
+    throw parseApiError(err);
   }
 }
 

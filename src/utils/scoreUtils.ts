@@ -83,6 +83,22 @@ export function getScoreLevel(score: number, isBanned: boolean): ScoreLevel {
   return 'CRITIQUE';
 }
 
+/** Niveau visuel jauge profil : banni ou score ≤ 0 → état distinct (sans recalculer le score). */
+export function getScoreGaugeLevel(score: number, isBanned: boolean): ScoreLevel {
+  if (isBanned || score <= 0) return 'BANNI';
+  return getScoreLevel(score, false);
+}
+
+/** Couleurs d’arc par palier (Bon ≠ Excellent pour lisibilité). */
+export const SCORE_GAUGE_COLOR: Record<ScoreLevel, string> = {
+  EXCELLENT: '#15803D',
+  BON: '#1D4ED8',
+  MOYEN: '#D97706',
+  FAIBLE: '#EA580C',
+  CRITIQUE: '#991B1B',
+  BANNI: '#374151',
+};
+
 export const SCORE_COLOR: Record<ScoreLevel, string> = {
   EXCELLENT: '#1A6B3C',
   BON: '#1A6B3C',

@@ -32,3 +32,19 @@ export interface CycleCompletionInfo {
   outstandingMemberIds?: string[];
   raw: Record<string, unknown>;
 }
+
+/** GET /v1/cycles/:cycleUid/payout-organizer-state — CyclePayoutOrganizerStateDto (api-contract.json) */
+export interface CyclePayoutOrganizerState {
+  cycleUid: string;
+  isCollectionComplete: boolean;
+  completionPercent: number;
+  canOrganizerTriggerPayout: boolean;
+  netPayoutAmount: number;
+  grossCollectedAmount: number;
+  beneficiaryPayoutStatus?: string;
+  /** Nom affichage bénéficiaire si exposé par l’API */
+  beneficiaryName?: string | null;
+  payoutOutboxUid?: string;
+  /** Prochaine échéance (chaîne ISO ou null selon backend) */
+  nextDueDate?: string | null;
+}

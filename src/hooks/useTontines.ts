@@ -1,6 +1,6 @@
 /**
  * Hook — liste des tontines et invitations en attente.
- * - tontines : GET /v1/tontines/me (actives + PENDING join requests)
+ * - tontines : fusion GET /v1/tontines/me + GET /v1/savings (voir `getTontines`)
  * - invitations : GET /v1/tontines/invitations/received (invitations nominatives INVITE)
  */
 import { useQuery } from '@tanstack/react-query';

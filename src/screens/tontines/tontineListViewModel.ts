@@ -112,7 +112,11 @@ export function getPrimaryActionKind(item: TontineListItem): TontinePrimaryActio
 
   if (item.status === 'DRAFT') return 'FINALIZE';
 
-  if (item.status === 'BETWEEN_ROUNDS' && isCreator(item)) {
+  if (
+    item.status === 'BETWEEN_ROUNDS' &&
+    isCreator(item) &&
+    item.type !== 'EPARGNE'
+  ) {
     return 'NEW_ROTATION';
   }
 

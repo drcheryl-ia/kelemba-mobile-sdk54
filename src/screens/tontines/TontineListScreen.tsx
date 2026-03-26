@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -21,6 +21,7 @@ import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { MainTabParamList } from '@/navigation/types';
 import { selectAccountType } from '@/store/authSlice';
 import { useTontines } from '@/hooks/useTontines';
+import { resolveOrganizerPayoutNavigationData } from '@/utils/organizerPayoutNavigation';
 import {
   approveMember,
   getTontinePreview,
@@ -31,6 +32,7 @@ import type { TontinePreview } from '@/api/types/api.types';
 import { parseApiError, getErrorMessageForCode } from '@/api/errors';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 import { TontineCard } from '@/components/tontines/TontineCard';
+import { navigationRef } from '@/navigation/navigationRef';
 import {
   ORIGIN_JOIN_REQUEST,
   type PendingMemberRequest,
@@ -60,6 +62,8 @@ import {
 
 const TAB_BAR_HEIGHT = 64;
 const FAB_MARGIN_ABOVE_TAB = 12;
+/** Pagination locale (l’API ne pagine pas la liste unifiée). */
+const TONTINE_LIST_PAGE_SIZE = 20;
 
 type Props = BottomTabScreenProps<MainTabParamList, 'Tontines'>;
 type TabId = 'mine' | 'invitations';
@@ -141,6 +145,10 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
   const [joinPreview, setJoinPreview] = useState<TontinePreview | null>(null);
   const [joinPreviewLoading, setJoinPreviewLoading] = useState(false);
   const [joinPreviewError, setJoinPreviewError] = useState<string | null>(null);
+  const [organizerPayoutFetchTontineUid, setOrganizerPayoutFetchTontineUid] = useState<
+    string | null
+  >(null);
+  const organizerPayoutRequestLockRef = useRef(false);
 
   useEffect(() => {
     const tab = (route.params as { initialTab?: TabId } | undefined)?.initialTab;
@@ -211,11 +219,37 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
     return sortTontinesForList(quickFiltered, advancedFilters.sortBy);
   }, [advancedFilters, quickFilter, tontines]);
 
+  const [listVisibleCount, setListVisibleCount] = useState(TONTINE_LIST_PAGE_SIZE);
+
+  useEffect(() => {
+    setListVisibleCount(TONTINE_LIST_PAGE_SIZE);
+  }, [activeTab, quickFilter, advancedFilters, tontines, invitations]);
+
+  const listTotalLength =
+    activeTab === 'mine' ? filteredMineTontines.length : invitations.length;
+
+  const listData = useMemo(() => {
+    const source = activeTab === 'mine' ? filteredMineTontines : invitations;
+    return source.slice(0, listVisibleCount);
+  }, [activeTab, filteredMineTontines, invitations, listVisibleCount]);
+
+  const hasMoreListItems = listVisibleCount < listTotalLength;
+
+  const handleLoadMoreList = useCallback(() => {
+    setListVisibleCount((prev) => {
+      const max =
+        activeTab === 'mine' ? filteredMineTontines.length : invitations.length;
+      if (prev >= max) return prev;
+      return Math.min(prev + TONTINE_LIST_PAGE_SIZE, max);
+    });
+  }, [activeTab, filteredMineTontines, invitations]);
+
   const filtersSelected = hasSelectedFilters(quickFilter, advancedFilters);
   const invitationTabBadgeCount =
     invitations.length + (accountType === 'ORGANISATEUR' ? pendingRequestCount : 0);
 
   const handleRefresh = useCallback(async () => {
+    setListVisibleCount(TONTINE_LIST_PAGE_SIZE);
     await refetch();
     if (activeTab === 'invitations' && accountType === 'ORGANISATEUR') {
       await refetchPending();
@@ -235,6 +269,48 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
       });
     },
     [navigation]
+  );
+
+  const handleOrganizerPayoutPress = useCallback(
+    async (item: TontineListItem) => {
+      if (organizerPayoutRequestLockRef.current) return;
+      if (item.currentCycleUid == null || item.currentCycle == null) {
+        navigateToTontine(item);
+        return;
+      }
+      organizerPayoutRequestLockRef.current = true;
+      setOrganizerPayoutFetchTontineUid(item.uid);
+      try {
+        const result = await resolveOrganizerPayoutNavigationData(item.currentCycleUid, {
+          kind: 'list',
+          item,
+        });
+        if (!result.ok) {
+          navigateToTontine(item);
+          if (result.reason === 'not_payable') {
+            Alert.alert(
+              t('tontineList.payoutUnavailableTitle', 'Versement indisponible'),
+              t(
+                'tontineList.payoutUnavailableMessage',
+                "Le versement n'est pas possible pour l'instant. Consultez le détail de la tontine pour l'état du cycle."
+              )
+            );
+          }
+          return;
+        }
+        navigationRef.navigate('CyclePayoutScreen', result.payload);
+      } catch (error: unknown) {
+        const apiError = parseApiError(error);
+        Alert.alert(
+          t('common.error', 'Erreur'),
+          getErrorMessageForCode(apiError, i18n.language === 'sango' ? 'sango' : 'fr')
+        );
+      } finally {
+        organizerPayoutRequestLockRef.current = false;
+        setOrganizerPayoutFetchTontineUid(null);
+      }
+    },
+    [i18n.language, navigateToTontine, t]
   );
 
   const handleCardPress = useCallback(
@@ -359,9 +435,15 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const renderMineCard = useCallback(
     ({ item }: { item: TontineListItem }) => (
-      <TontineCard item={item} onPress={handleCardPress} onNewRotationPress={handleCardPress} />
+      <TontineCard
+        item={item}
+        onPress={handleCardPress}
+        onNewRotationPress={handleCardPress}
+        onOrganizerPayoutPress={handleOrganizerPayoutPress}
+        organizerPayoutFetchTontineUid={organizerPayoutFetchTontineUid}
+      />
     ),
-    [handleCardPress]
+    [handleCardPress, handleOrganizerPayoutPress, organizerPayoutFetchTontineUid]
   );
 
   const renderInvitationCard = useCallback(
@@ -728,9 +810,11 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
       ) : null}
 
       <FlatList
-        data={activeTab === 'mine' ? filteredMineTontines : invitations}
+        data={listData}
         keyExtractor={(item) => item.uid}
         renderItem={activeTab === 'mine' ? renderMineCard : renderInvitationCard}
+        onEndReached={handleLoadMoreList}
+        onEndReachedThreshold={0.35}
         contentContainerStyle={[
           styles.listContent,
           activeTab === 'mine' && filteredMineTontines.length === 0 && styles.listContentCentered,
@@ -777,6 +861,26 @@ export const TontineListScreen: React.FC<Props> = ({ navigation, route }) => {
                   {t('tontineList.myInvitations', 'Mes invitations reçues')}
                 </Text>
               </View>
+            </View>
+          ) : null
+        }
+        ListFooterComponent={
+          listTotalLength > TONTINE_LIST_PAGE_SIZE ? (
+            <View style={styles.listPaginationFooter}>
+              <Text style={styles.paginationText}>
+                {t('tontineList.paginationStatus', '{{shown}} affichées sur {{total}}', {
+                  shown: listData.length,
+                  total: listTotalLength,
+                })}
+              </Text>
+              {hasMoreListItems ? (
+                <Text style={styles.paginationHint}>
+                  {t(
+                    'tontineList.paginationScrollHint',
+                    'Faites défiler pour afficher la suite.'
+                  )}
+                </Text>
+              ) : null}
             </View>
           ) : null
         }
@@ -1229,6 +1333,22 @@ const styles = StyleSheet.create({
   errorBannerText: { flex: 1, fontSize: 13, lineHeight: 18, color: '#92400E' },
   listContent: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 120 },
   listContentCentered: { flexGrow: 1, justifyContent: 'center' },
+  listPaginationFooter: {
+    paddingVertical: 16,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+  },
+  paginationText: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  paginationHint: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 4,
+  },
   invitationHeaderSection: { paddingBottom: 8 },
   sectionHeader: {
     flexDirection: 'row',

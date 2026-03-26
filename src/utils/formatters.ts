@@ -1,8 +1,12 @@
 /**
  * Formateurs FCFA (XAF) — montants entiers, pas de centimes.
+ * Tolère null/undefined / NaN (réponses API partielles) pour éviter un crash sur toLocaleString.
  */
-export const formatFcfa = (amount: number): string => {
-  return `${amount.toLocaleString('fr-FR')} FCFA`;
+export const formatFcfa = (amount: number | null | undefined): string => {
+  if (amount == null) return '—';
+  const n = typeof amount === 'number' ? amount : Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toLocaleString('fr-FR')} FCFA`;
 };
 
 export const parseFcfa = (value: string): number => {
