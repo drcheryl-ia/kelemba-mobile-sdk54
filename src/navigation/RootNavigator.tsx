@@ -23,9 +23,12 @@ import {
 import { PaymentScreen, PaymentStatusScreen } from '@/screens/payments';
 import {
   SavingsCreateScreen,
+  SavingsListScreen,
   SavingsDetailScreen,
   SavingsDashboardScreen,
   SavingsBalanceScreen,
+  SavingsMyBalanceScreen,
+  SavingsPeriodsScreen,
   SavingsContributeScreen,
   SavingsWithdrawScreen,
 } from '@/screens/savings';
@@ -102,6 +105,11 @@ export const RootNavigator: React.FC = () => (
       options={{ headerShown: true, title: 'Nouvelle Épargne', headerBackTitle: '' }}
     />
     <Stack.Screen
+      name="SavingsListScreen"
+      component={SavingsListScreen}
+      options={{ headerShown: false, headerBackTitle: '' }}
+    />
+    <Stack.Screen
       name="SavingsDetailScreen"
       component={SavingsDetailScreen}
       options={{ headerShown: false }}
@@ -115,6 +123,16 @@ export const RootNavigator: React.FC = () => (
       name="SavingsBalanceScreen"
       component={SavingsBalanceScreen}
       options={{ headerShown: true, title: 'Mon Épargne', headerBackTitle: '' }}
+    />
+    <Stack.Screen
+      name="SavingsMyBalanceScreen"
+      component={SavingsMyBalanceScreen}
+      options={{ headerShown: false, headerBackTitle: '' }}
+    />
+    <Stack.Screen
+      name="SavingsPeriodsScreen"
+      component={SavingsPeriodsScreen}
+      options={{ headerShown: false, headerBackTitle: '' }}
     />
     <Stack.Screen
       name="SavingsContributeScreen"

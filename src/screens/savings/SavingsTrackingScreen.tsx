@@ -124,8 +124,8 @@ export const SavingsTrackingScreen: React.FC<Props> = ({ navigation }) => {
 
   const balanceQueries = useQueries({
     queries: epargneUids.map((uid) => ({
-      queryKey: savingsKeys.balance(uid),
-      queryFn: () => savingsApi.getMyBalance(uid),
+      queryKey: savingsKeys.myBalance(uid),
+      queryFn: () => savingsApi.myBalance(uid),
       enabled: uid.length > 0 && !tontinesLoading,
       staleTime: 60_000,
       retry: shouldRetryApiQuery,
@@ -183,7 +183,7 @@ export const SavingsTrackingScreen: React.FC<Props> = ({ navigation }) => {
     await refetch();
     await Promise.all([
       ...epargneUids.map((uid) =>
-        queryClient.invalidateQueries({ queryKey: savingsKeys.balance(uid) })
+        queryClient.invalidateQueries({ queryKey: savingsKeys.myBalance(uid) })
       ),
       ...rotativeUids.map((uid) => queryClient.invalidateQueries({ queryKey: ['report', uid] })),
     ]);
@@ -398,7 +398,10 @@ export const SavingsTrackingScreen: React.FC<Props> = ({ navigation }) => {
                       </Text>
                       <Text style={styles.metaText}>
                         {t('savingsTracking.rowProjected', 'Projection indicative')}:{' '}
-                        {formatFcfa(bal.estimatedFinalBalance)}
+                        {bal.estimatedFinalBalance != null &&
+                        Number.isFinite(bal.estimatedFinalBalance)
+                          ? formatFcfa(bal.estimatedFinalBalance)
+                          : '—'}
                       </Text>
                     </>
                   ) : (

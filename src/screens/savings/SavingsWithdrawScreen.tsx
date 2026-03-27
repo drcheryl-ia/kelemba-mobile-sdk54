@@ -1,7 +1,7 @@
 /**
- * Récapitulatif de retrait + confirmation.
+ * Récapitulatif de retrait + confirmation (idempotence côté client).
  */
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,19 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
-import { useTranslation } from 'react-i18next';
-import { useSelector } from 'react-redux';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
-import { selectUserUid } from '@/store/authSlice';
-import { useSavingsDashboard, useRequestWithdrawal, useRequestEarlyExit } from '@/hooks/useSavings';
-import { savingsApi } from '@/api/savings.api';
-import { formatFCFA, isUnlockReached } from '@/utils/savings.utils';
+import {
+  useSavingsDetail,
+  useSavingsWithdrawalPreview,
+  useWithdrawSavings,
+} from '@/hooks/useSavings';
+import { formatFcfa } from '@/utils/formatters';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { SavingsScreenHeader } from '@/components/savings';
 
@@ -27,99 +30,84 @@ type Route = RouteProp<RootStackParamList, 'SavingsWithdrawScreen'>;
 
 export const SavingsWithdrawScreen: React.FC = () => {
   const route = useRoute<Route>();
-  const navigation = useNavigation();
-  const { t } = useTranslation();
-  const { tontineUid } = route.params;
-  const userUid = useSelector(selectUserUid);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { uid, memberUid } = route.params;
 
-  const { data: dashboard, isLoading } = useSavingsDashboard(tontineUid);
-  const myMemberUid =
-    dashboard?.members.find((m) => m.userUid === userUid)?.uid ?? null;
-  const [preview, setPreview] = useState<Awaited<ReturnType<typeof savingsApi.getWithdrawalPreview>> | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(true);
-  const [method, setMethod] = useState<'ORANGE_MONEY' | 'TELECEL_MONEY'>('ORANGE_MONEY');
   const idempotencyKeyRef = useRef<string | null>(null);
+  const [method, setMethod] = useState<'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH'>(
+    'ORANGE_MONEY'
+  );
+  const [earlyExitAccepted, setEarlyExitAccepted] = useState(false);
 
-  const withdrawMutation = useRequestWithdrawal(tontineUid);
-  const earlyExitMutation = useRequestEarlyExit(tontineUid);
+  const { data: detail, isLoading: detailLoading } = useSavingsDetail(uid);
+  const {
+    data: preview,
+    isLoading: previewLoading,
+    isError: previewError,
+    refetch,
+  } = useSavingsWithdrawalPreview(uid);
 
-  const config = dashboard?.savingsConfig;
-  const isEarlyExit = config ? !isUnlockReached(config.unlockDate) : false;
+  const withdrawMutation = useWithdrawSavings(uid);
 
-  const getOrCreateIdempotencyKey = useCallback(() => {
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current = crypto.randomUUID();
-    }
-    return idempotencyKeyRef.current;
-  }, []);
+  const loading = (detailLoading && !detail) || (previewLoading && !preview);
 
-  useEffect(() => {
-    let cancelled = false;
-    savingsApi
-      .getWithdrawalPreview(tontineUid)
-      .then((p) => {
-        if (!cancelled) setPreview(p);
-      })
-      .catch(() => {
-        if (!cancelled) setPreview(null);
-      })
-      .finally(() => {
-        if (!cancelled) setPreviewLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tontineUid]);
-
-  const handleConfirm = async () => {
-    if (!preview) return;
-    const key = getOrCreateIdempotencyKey();
-    const methodLabel = method === 'ORANGE_MONEY' ? 'Orange Money' : 'Telecel Money';
-
-    Alert.alert(
-      t('savingsWithdraw.confirmTitle'),
-      t('savingsWithdraw.confirmMessage', {
-        amount: formatFCFA(preview.totalAmount),
-        method: methodLabel,
-      }),
-      [
-        { text: t('common.cancel', 'Annuler'), style: 'cancel' },
-        {
-          text: t('common.confirm', 'Confirmer'),
-          onPress: async () => {
-            try {
-              const payload = { method, idempotencyKey: key };
-              if (isEarlyExit) {
-                if (!myMemberUid) {
-                  Alert.alert(t('savingsWithdraw.errorTitle'), t('savingsWithdraw.memberMissing'));
-                  return;
-                }
-                await earlyExitMutation.mutateAsync({
-                  memberUid: myMemberUid,
-                  payload,
-                });
-              } else {
-                await withdrawMutation.mutateAsync(payload);
-              }
-              (navigation as { navigate: (a: string) => void }).navigate('MainTabs');
-            } catch (err: unknown) {
-              const apiErr = parseApiError(err);
-              Alert.alert(
-                t('savingsWithdraw.errorTitle'),
-                apiErr.message ?? t('savingsWithdraw.errorGeneric')
-              );
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  if (isLoading || !dashboard) {
+  if (!memberUid) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <SavingsScreenHeader
-          title={t('savingsBalance.defaultTitle')}
+          title="Retrait"
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={styles.blockedWrap}>
+          <Text style={styles.blockedTitle}>
+            Référence membre manquante. Revenez en arrière et réessayez.
+          </Text>
+          <Pressable style={styles.ctaOutline} onPress={() => navigation.goBack()}>
+            <Text style={styles.ctaOutlineText}>Retour</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const handleConfirm = async () => {
+    if (!preview?.canWithdraw) return;
+    if (preview.isEarlyExitPossible && !earlyExitAccepted) return;
+
+    let key = idempotencyKeyRef.current;
+    if (key == null) {
+      key = crypto.randomUUID();
+      idempotencyKeyRef.current = key;
+    }
+
+    try {
+      await withdrawMutation.mutateAsync({ method, idempotencyKey: key });
+      Alert.alert(
+        'Demande de retrait enregistrée. Traitement en cours.',
+        undefined,
+        [
+          {
+            text: 'OK',
+            onPress: () =>
+              navigation.navigate('SavingsDetailScreen', {
+                tontineUid: uid,
+                isCreator: false,
+              }),
+          },
+        ]
+      );
+    } catch (err: unknown) {
+      const apiErr = parseApiError(err);
+      Alert.alert('Erreur', apiErr.message ?? 'Une erreur est survenue. Réessayez.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title="Retrait"
           onBack={() => navigation.goBack()}
           titleNumberOfLines={1}
         />
@@ -130,158 +118,285 @@ export const SavingsWithdrawScreen: React.FC = () => {
     );
   }
 
+  if (previewError || !preview) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title="Retrait"
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={1}
+        />
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>Impossible de charger l&apos;aperçu.</Text>
+          <Pressable style={styles.retryBtn} onPress={() => void refetch()}>
+            <Text style={styles.retryText}>Réessayer</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const title = detail?.name ?? 'Retrait';
+
+  if (!preview.canWithdraw) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SavingsScreenHeader
+          title={title}
+          subtitle="Retrait"
+          onBack={() => navigation.goBack()}
+          titleNumberOfLines={2}
+        />
+        <View style={styles.blockedWrap}>
+          <Text style={styles.blockedTitle}>
+            Retrait non disponible :{' '}
+            {preview.reasonIfBlocked ?? 'conditions non remplies.'}
+          </Text>
+          <Pressable style={styles.ctaOutline} onPress={() => navigation.goBack()}>
+            <Text style={styles.ctaOutlineText}>Retour</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const confirmDisabled =
+    withdrawMutation.isPending ||
+    (preview.isEarlyExitPossible && !earlyExitAccepted);
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <SavingsScreenHeader
-        title={dashboard.tontine.name}
-        subtitle={t('savingsWithdraw.subtitle')}
+        title={title}
+        subtitle="Retrait"
         onBack={() => navigation.goBack()}
         titleNumberOfLines={2}
       />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-      {isEarlyExit ? (
-        <View style={styles.bannerOrange}>
-          <Text style={styles.bannerText}>
-            {t('savingsWithdraw.bannerEarly', { n: config?.earlyExitPenaltyPercent ?? 0 })}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.bannerGreen}>
-          <Text style={styles.bannerText}>{t('savingsWithdraw.bannerUnlocked')}</Text>
-        </View>
-      )}
-
-      {previewLoading ? (
-        <ActivityIndicator color="#1A6B3C" style={styles.loader} />
-      ) : preview ? (
-        <View style={styles.previewCard}>
-          <View style={styles.previewRow}>
-            <Text style={styles.previewLabel}>{t('savingsWithdraw.previewCapital')}</Text>
-            <Text style={styles.previewValue}>{formatFCFA(preview.capitalAmount)}</Text>
-          </View>
-          {preview.bonusAmount > 0 && (
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+      >
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.previewCard}>
             <View style={styles.previewRow}>
-              <Text style={styles.previewLabel}>{t('savingsWithdraw.previewBonus')}</Text>
-              <Text style={styles.previewValue}>{formatFCFA(preview.bonusAmount)}</Text>
+              <Text style={styles.previewLabel}>Capital</Text>
+              <Text style={styles.previewValue}>{formatFcfa(preview.capitalAmount)}</Text>
             </View>
-          )}
-          {preview.penaltyAmount > 0 && (
             <View style={styles.previewRow}>
-              <Text style={[styles.previewLabel, styles.previewPenalty]}>
-                {t('savingsWithdraw.previewPenalty')}
-              </Text>
-              <Text style={[styles.previewValue, styles.previewPenalty]}>
-                -{formatFCFA(preview.penaltyAmount)}
+              <Text style={styles.previewLabel}>Bonus estimé</Text>
+              <Text style={styles.previewValue}>
+                {formatFcfa(preview.estimatedBonusAmount)}
               </Text>
             </View>
-          )}
-          <View style={styles.previewDivider} />
-          <View style={styles.previewRow}>
-            <Text style={styles.previewTotalLabel}>{t('savingsWithdraw.previewTotal')}</Text>
-            <Text style={styles.previewTotalValue}>{formatFCFA(preview.totalAmount)}</Text>
+            <View style={styles.previewRow}>
+              <Text
+                style={[
+                  styles.previewLabel,
+                  preview.penaltyAmount > 0 ? styles.penaltyText : null,
+                ]}
+              >
+                Pénalité
+              </Text>
+              <Text
+                style={[
+                  styles.previewValue,
+                  preview.penaltyAmount > 0 ? styles.penaltyText : null,
+                ]}
+              >
+                {formatFcfa(preview.penaltyAmount)}
+              </Text>
+            </View>
+            <View style={styles.previewDivider} />
+            <View style={styles.previewRow}>
+              <Text style={styles.totalLabel}>Total estimé</Text>
+              <Text style={styles.totalValue}>{formatFcfa(preview.totalAmount)}</Text>
+            </View>
           </View>
-        </View>
-      ) : (
-        <Text style={styles.errorText}>{t('savingsWithdraw.previewError')}</Text>
-      )}
 
-      <Text style={styles.label}>{t('savingsWithdraw.receptionMethod')}</Text>
-      <View style={styles.methodRow}>
-        <Pressable
-          style={[styles.methodCard, method === 'ORANGE_MONEY' && styles.methodCardActive]}
-          onPress={() => setMethod('ORANGE_MONEY')}
-        >
-          <Text style={styles.methodText}>Orange Money</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.methodCard, method === 'TELECEL_MONEY' && styles.methodCardActive]}
-          onPress={() => setMethod('TELECEL_MONEY')}
-        >
-          <Text style={styles.methodText}>Telecel Money</Text>
-        </Pressable>
-      </View>
+          <Text style={styles.disclosure}>{preview.previewDisclosure}</Text>
 
-      {preview && (
-        <Pressable
-          style={styles.cta}
-          onPress={handleConfirm}
-          disabled={
-            withdrawMutation.isPending ||
-            earlyExitMutation.isPending ||
-            (isEarlyExit && !myMemberUid)
-          }
-        >
-          {withdrawMutation.isPending || earlyExitMutation.isPending ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.ctaText}>
-              {t('savingsWithdraw.ctaReceive', { amount: formatFCFA(preview.totalAmount) })}
-            </Text>
-          )}
-        </Pressable>
-      )}
-    </ScrollView>
+          {preview.isEarlyExitPossible ? (
+            <View style={styles.bannerAmber}>
+              <Text style={styles.bannerTitle}>
+                ⚠ Sortie anticipée — une pénalité de {formatFcfa(preview.penaltyAmount)}{' '}
+                sera appliquée.
+              </Text>
+              <Pressable
+                style={styles.checkRow}
+                onPress={() => setEarlyExitAccepted((v) => !v)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: earlyExitAccepted }}
+              >
+                <View
+                  style={[styles.checkBox, earlyExitAccepted && styles.checkBoxOn]}
+                >
+                  {earlyExitAccepted ? <Text style={styles.checkMark}>✓</Text> : null}
+                </View>
+                <Text style={styles.checkLabel}>
+                  Je confirme comprendre les conditions de sortie anticipée
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <Text style={styles.label}>Mode de réception</Text>
+          <View style={styles.methodRow}>
+            <Pressable
+              style={[
+                styles.methodCard,
+                method === 'ORANGE_MONEY' && styles.methodCardActive,
+              ]}
+              onPress={() => setMethod('ORANGE_MONEY')}
+            >
+              <Text style={styles.methodText}>Orange Money</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.methodCard,
+                method === 'TELECEL_MONEY' && styles.methodCardActive,
+              ]}
+              onPress={() => setMethod('TELECEL_MONEY')}
+            >
+              <Text style={styles.methodText}>Telecel Money</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.methodCard, method === 'CASH' && styles.methodCardActive]}
+              onPress={() => setMethod('CASH')}
+            >
+              <Text style={styles.methodText}>Espèces</Text>
+            </Pressable>
+          </View>
+
+          <Pressable
+            style={[styles.cta, confirmDisabled && styles.ctaDisabled]}
+            onPress={() => void handleConfirm()}
+            disabled={confirmDisabled}
+          >
+            {withdrawMutation.isPending ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.ctaText}>Confirmer le retrait</Text>
+            )}
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F8FA' },
+  flex: { flex: 1 },
   scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  bannerOrange: {
-    backgroundColor: '#FEF3C7',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  bannerGreen: {
-    backgroundColor: '#DCFCE7',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  bannerText: { fontSize: 14, fontWeight: '600', color: '#1C1C1E' },
-  loader: { marginVertical: 24 },
-  errorText: { fontSize: 14, color: '#D0021B', marginBottom: 20 },
   previewCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 20,
-    marginBottom: 24,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
   },
-  previewRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
+  previewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
   previewLabel: { fontSize: 14, color: '#6B7280' },
   previewValue: { fontSize: 14, fontWeight: '600', color: '#1C1C1E' },
-  previewPenalty: { color: '#D0021B' },
-  previewDivider: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 8 },
-  previewTotalLabel: { fontSize: 16, fontWeight: '700', color: '#1C1C1E' },
-  previewTotalValue: { fontSize: 24, fontWeight: '700', color: '#1A6B3C' },
+  penaltyText: { color: '#D0021B' },
+  previewDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 8,
+  },
+  totalLabel: { fontSize: 16, fontWeight: '700', color: '#1C1C1E' },
+  totalValue: { fontSize: 20, fontWeight: '700', color: '#1A6B3C' },
+  disclosure: { fontSize: 11, color: '#9CA3AF', marginBottom: 16 },
+  bannerAmber: {
+    backgroundColor: '#FEF3C7',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  bannerTitle: { fontSize: 14, fontWeight: '600', color: '#92400E', marginBottom: 12 },
+  checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  checkBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#92400E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  checkBoxOn: { backgroundColor: '#1A6B3C', borderColor: '#1A6B3C' },
+  checkMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  checkLabel: { flex: 1, fontSize: 14, color: '#1C1C1E', lineHeight: 20 },
   label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 12 },
-  methodRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
+  methodRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 24,
+  },
   methodCard: {
-    flex: 1,
-    height: 80,
+    flexGrow: 1,
+    flexBasis: '28%',
+    minWidth: 96,
+    minHeight: 48,
     borderWidth: 2,
     borderColor: '#E5E7EB',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 8,
+    backgroundColor: '#FFFFFF',
   },
   methodCardActive: { borderColor: '#1A6B3C', backgroundColor: '#E8F5EE' },
-  methodText: { fontSize: 14, fontWeight: '600', color: '#1C1C1E' },
+  methodText: { fontSize: 13, fontWeight: '600', color: '#1C1C1E', textAlign: 'center' },
   cta: {
-    height: 52,
+    minHeight: 48,
     backgroundColor: '#1A6B3C',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 12,
   },
+  ctaDisabled: { opacity: 0.5 },
   ctaText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  blockedWrap: { padding: 24, gap: 20 },
+  blockedTitle: { fontSize: 15, color: '#4B5563', lineHeight: 22 },
+  ctaOutline: {
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#1A6B3C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaOutlineText: { fontSize: 16, fontWeight: '700', color: '#1A6B3C' },
+  errorBox: { padding: 24 },
+  errorText: { fontSize: 15, color: '#4B5563', marginBottom: 16 },
+  retryBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#1A6B3C',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryText: { color: '#FFFFFF', fontWeight: '700' },
 });

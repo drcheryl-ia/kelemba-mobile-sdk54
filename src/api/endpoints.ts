@@ -218,6 +218,42 @@ export const ENDPOINTS = {
       method: 'POST' as const,
       url: `${BASE}/v1/savings/${uid}/members/${memberUid}/early-exit`,
     }),
+    /** Alias sémantique — même URL que BY_ID */
+    DETAIL: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}`,
+    }),
+    /** Alias — même URL que WITHDRAW_PREVIEW */
+    WITHDRAWAL_PREVIEW: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/withdrawal-preview`,
+    }),
+    /** Alias — même URL que CONTRIBUTIONS */
+    PERIOD_CONTRIBUTIONS: (uid: string, periodUid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/periods/${periodUid}/contributions`,
+    }),
+    /** Alias — même URL que EARLY_EXIT */
+    MEMBER_EARLY_EXIT: (uid: string, memberUid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/savings/${uid}/members/${memberUid}/early-exit`,
+    }),
+    PROJECTION: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/projection`,
+    }),
+    BONUS_POOL: (uid: string) => ({
+      method: 'GET' as const,
+      url: `${BASE}/v1/savings/${uid}/bonus-pool`,
+    }),
+    MEMBER_SUSPEND: (uid: string, memberUid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/savings/${uid}/members/${memberUid}/suspend`,
+    }),
+    MEMBER_REINSTATE: (uid: string, memberUid: string) => ({
+      method: 'POST' as const,
+      url: `${BASE}/v1/savings/${uid}/members/${memberUid}/reinstate`,
+    }),
   },
 
   // ── CYCLES ────────────────────────────────────────────────

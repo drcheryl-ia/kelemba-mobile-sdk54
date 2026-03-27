@@ -67,11 +67,18 @@ export type RootStackParamList = {
     sharesCount?: number;
   };
   SavingsCreateScreen: undefined;
-  SavingsDetailScreen: { tontineUid: string };
+  SavingsListScreen: undefined;
+  SavingsDetailScreen: { tontineUid: string; uid?: string; isCreator?: boolean };
   SavingsDashboardScreen: { tontineUid: string };
   SavingsBalanceScreen: { tontineUid: string };
-  SavingsContributeScreen: { tontineUid: string; periodUid: string };
-  SavingsWithdrawScreen: { tontineUid: string };
+  SavingsContributeScreen: {
+    uid: string;
+    periodUid: string;
+    minimumAmount: number;
+  };
+  SavingsWithdrawScreen: { uid: string; memberUid: string };
+  SavingsMyBalanceScreen: { uid: string };
+  SavingsPeriodsScreen: { uid: string };
   NotificationsScreen: undefined;
   PaymentReminderScreen: {
     tontineUid: string;

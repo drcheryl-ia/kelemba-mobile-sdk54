@@ -14,7 +14,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import { useSelector } from 'react-redux';
 import type { RootStackParamList } from '@/navigation/types';
+import { selectUserUid } from '@/store/authSlice';
 import { useMyBalance, useSavingsPeriods, useSavingsContributions } from '@/hooks/useSavings';
 import { formatFCFA, isUnlockReached, isPeriodOpen } from '@/utils/savings.utils';
 import { useSavingsDashboard } from '@/hooks/useSavings';
@@ -28,6 +30,7 @@ export const SavingsBalanceScreen: React.FC = () => {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { tontineUid } = route.params;
+  const userUid = useSelector(selectUserUid);
   const [selectedPeriodUid, setSelectedPeriodUid] = useState<string | null>(null);
 
   const {
@@ -230,11 +233,19 @@ export const SavingsBalanceScreen: React.FC = () => {
           onPress={() => {
             const nav = navigation as { navigate: (a: string, b: object) => void };
             if (unlockReached) {
-              nav.navigate('SavingsWithdrawScreen', { tontineUid });
+              const memberUid =
+                dashboard?.members.find((m) => m.userUid === userUid)?.uid ?? '';
+              if (!memberUid) return;
+              nav.navigate('SavingsWithdrawScreen', { uid: tontineUid, memberUid });
             } else if (currentPeriod) {
+              const min =
+                currentPeriod.minimumAmount ??
+                config?.minimumContribution ??
+                500;
               nav.navigate('SavingsContributeScreen', {
-                tontineUid,
+                uid: tontineUid,
                 periodUid: currentPeriod.uid,
+                minimumAmount: min,
               });
             }
           }}

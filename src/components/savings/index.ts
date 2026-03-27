@@ -7,3 +7,7 @@ export type {
   SavingsScreenHeaderProps,
   SavingsStatusChip,
 } from './SavingsScreenHeader';
+
+export { SavingsInfoRow } from './SavingsInfoRow';
+export { SavingsCard } from './SavingsCard';
+export { SavingsNextPeriodWidget } from './SavingsNextPeriodWidget';

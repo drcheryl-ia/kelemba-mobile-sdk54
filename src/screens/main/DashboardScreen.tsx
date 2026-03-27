@@ -2,7 +2,15 @@
  * Accueil — dashboard membre / organisateur, données API réelles.
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, ScrollView, RefreshControl, StyleSheet, Text, Alert } from 'react-native';
+import {
+  View,
+  ScrollView,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  Alert,
+  Pressable,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
@@ -47,6 +55,9 @@ import { withNextPaymentPenaltyWaivedForPendingCashValidation } from '@/utils/ne
 import { resolveDashboardOrganizerPayoutReminder } from '@/utils/cyclePayoutEligibility';
 import { aggregateSavingsHomeSummary } from '@/utils/homeSavingsRowViewModel';
 import { HomeSavingsSummaryCard } from '@/components/dashboard/HomeSavingsSummaryCard';
+import { useSavingsList } from '@/hooks/savings/useSavingsList';
+import { SavingsCard } from '@/components/savings/SavingsCard';
+import { SavingsNextPeriodWidget } from '@/components/savings/SavingsNextPeriodWidget';
 
 type Props = BottomTabScreenProps<MainTabParamList, 'Dashboard'>;
 
@@ -107,6 +118,12 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     refetch: refetchNotifs,
   } = useNotifications();
 
+  const {
+    data: savingsListData,
+    isLoading: savingsListLoading,
+    refetch: refetchSavingsList,
+  } = useSavingsList();
+
   const { errorMessage, errorSeverity, handleError, clearError } = useApiError();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -165,6 +182,7 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         refetchNextPayment(),
         refetchTontines(),
         refetchNotifs(),
+        refetchSavingsList(),
         ...homePayoutRotationUids.map((uid) =>
           queryClient.invalidateQueries({ queryKey: ['tontineRotation', uid] })
         ),
@@ -177,6 +195,7 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     refetchNextPayment,
     refetchTontines,
     refetchNotifs,
+    refetchSavingsList,
     clearError,
     queryClient,
     homePayoutRotationUids,
@@ -257,6 +276,14 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     () => aggregateSavingsHomeSummary(officialTontines),
     [officialTontines]
   );
+
+  const savingsItems = useMemo(
+    () => (Array.isArray(savingsListData) ? savingsListData : []),
+    [savingsListData]
+  );
+  const showSavingsSection = !savingsListLoading && savingsItems.length > 0;
+  const savingsPreview = useMemo(() => savingsItems.slice(0, 2), [savingsItems]);
+  const firstSavingsUid = savingsItems[0]?.uid ?? '';
 
   const heroLoading = useMemo(() => {
     const dataLoading = nextPaymentLoading || cashHistoryFetching;
@@ -371,8 +398,9 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       });
       if (primary.periodUid) {
         navigationRef.navigate('SavingsContributeScreen', {
-          tontineUid: primary.tontineUid,
+          uid: primary.tontineUid,
           periodUid: primary.periodUid,
+          minimumAmount: primary.amount,
         });
       } else {
         navigationRef.navigate('SavingsDetailScreen', { tontineUid: primary.tontineUid });
@@ -594,6 +622,52 @@ export const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           />
         </View>
 
+        {showSavingsSection ? (
+          <View style={styles.savingsSection}>
+            <View style={styles.savingsSectionHeader}>
+              <Text style={styles.savingsSectionTitle}>Mes tontines épargne</Text>
+              <Pressable
+                onPress={() => {
+                  if (navigationRef.isReady()) {
+                    navigationRef.navigate('SavingsListScreen');
+                  }
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Voir toutes les tontines épargne"
+              >
+                <Text style={styles.savingsSeeAll}>Voir tout</Text>
+              </Pressable>
+            </View>
+            <View style={styles.savingsHScrollWrap}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.savingsHScrollContent}
+              >
+                {savingsPreview.map((item) => (
+                  <View key={item.uid} style={styles.savingsCardSlide}>
+                    <SavingsCard
+                      item={item}
+                      onPress={() => {
+                        if (navigationRef.isReady()) {
+                          navigationRef.navigate('SavingsDetailScreen', {
+                            tontineUid: item.uid,
+                            isCreator: item.isCreator,
+                          });
+                        }
+                      }}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+            {firstSavingsUid !== '' ? (
+              <SavingsNextPeriodWidget uid={firstSavingsUid} />
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={styles.sectionGap}>
           <HomeNotificationsPreview
             items={allNotifications}
@@ -651,5 +725,37 @@ const styles = StyleSheet.create({
   },
   tontinesSection: {
     marginTop: 0,
+  },
+  savingsSection: {
+    marginHorizontal: 20,
+    marginTop: 4,
+  },
+  savingsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  savingsSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1C1C1E',
+  },
+  savingsSeeAll: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1A6B3C',
+  },
+  /** Hauteur sur le conteneur, pas sur le ScrollView horizontal (Android). */
+  savingsHScrollWrap: {
+    height: 200,
+  },
+  savingsHScrollContent: {
+    paddingVertical: 4,
+    paddingRight: 4,
+    alignItems: 'stretch',
+  },
+  savingsCardSlide: {
+    marginRight: 12,
   },
 });

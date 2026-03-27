@@ -1,5 +1,5 @@
 /**
- * Point d'entrée tontine Épargne — hub de navigation (données API + cache offline).
+ * Détail tontine épargne — useSavingsDetail + useSavingsBonusPool.
  */
 import React from 'react';
 import {
@@ -13,156 +13,133 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { useTranslation } from 'react-i18next';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
+import { useSavingsDetail, useSavingsBonusPool, useJoinSavingsTontine } from '@/hooks/useSavings';
+import { formatFcfa } from '@/utils/formatters';
+import { SavingsProgressBar, SavingsScreenHeader } from '@/components/savings';
+import { SavingsInfoRow } from '@/components/savings/SavingsInfoRow';
 import {
-  useSavingsDashboard,
-  useMyBalance,
-  useJoinSavingsTontine,
-  useSavingsPeriods,
-} from '@/hooks/useSavings';
-import {
-  formatFCFA,
-  isUnlockReached,
-  isPeriodOpen,
-  daysUntil,
   frequencyLabel,
+  daysUntil,
+  isUnlockReached,
+  progressPercent,
 } from '@/utils/savings.utils';
-import { deriveSavingsDetailStatusKey } from '@/utils/savingsDetailUx';
-import { formatDateLong } from '@/utils/formatters';
-import { SavingsProgressBar, SavingsScreenHeader, type SavingsStatusChip } from '@/components/savings';
-import { useSelector } from 'react-redux';
-import { selectUserUid } from '@/store/authSlice';
-import type { SavingsPeriodStatus } from '@/types/savings.types';
 
 type Route = RouteProp<RootStackParamList, 'SavingsDetailScreen'>;
 
-function periodStatusLabel(
-  s: SavingsPeriodStatus,
-  t: (k: string, f: string) => string
-): string {
-  if (s === 'OPEN') return t('savingsDetail.periodStatusOpen', 'Ouverte');
-  if (s === 'CLOSED') return t('savingsDetail.periodStatusClosed', 'Clôturée');
-  return t('savingsDetail.periodStatusPending', 'À venir');
-}
+const STATUS_BADGE: Record<string, { bg: string; label: string }> = {
+  ACTIVE: { bg: '#1A6B3C', label: 'ACTIVE' },
+  COMPLETED: { bg: '#9E9E9E', label: 'COMPLETED' },
+  DRAFT: { bg: '#EA580C', label: 'DRAFT' },
+  CANCELLED: { bg: '#9E9E9E', label: 'CANCELLED' },
+};
 
-function shortDate(iso: string): string {
-  const d = new Date(`${iso.split('T')[0]}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+function resolveUnlockLabel(unlockDate: string): string {
+  if (isUnlockReached(unlockDate)) return 'Déblocage disponible';
+  const d = daysUntil(unlockDate);
+  if (d <= 0) return 'Déblocage disponible';
+  return `Déblocage dans ${d} jour${d > 1 ? 's' : ''}`;
 }
 
 export const SavingsDetailScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<Route>();
-  const { t } = useTranslation();
-  const { tontineUid } = route.params;
-  const userUid = useSelector(selectUserUid);
+  const { tontineUid, uid: uidParam, isCreator } = route.params;
+  const uid = uidParam ?? tontineUid;
 
   const {
-    data: dashboard,
-    isLoading: dashLoading,
-    isError: dashError,
-    refetch: refetchDash,
+    data: detail,
+    isLoading,
+    isError,
+    refetch,
     isFetching,
-  } = useSavingsDashboard(tontineUid);
-  const { data: balance, refetch: refetchBalance } = useMyBalance(tontineUid);
-  const { data: periodsRaw, isLoading: periodsLoading } = useSavingsPeriods(tontineUid);
-  const periods = Array.isArray(periodsRaw) ? periodsRaw : [];
-  const joinMutation = useJoinSavingsTontine(tontineUid);
+  } = useSavingsDetail(uid);
+  const { data: bonusPool, refetch: refetchBonus } = useSavingsBonusPool(uid);
+  const joinMutation = useJoinSavingsTontine(uid);
 
   const refetchAll = () => {
-    void refetchDash();
-    void refetchBalance();
+    void refetch();
+    void refetchBonus();
   };
 
-  const isMember = dashboard?.members.some((m) => m.userUid === userUid);
-  const myMember = dashboard?.members.find((m) => m.userUid === userUid);
-  const config = dashboard?.savingsConfig;
-  const currentPeriod = dashboard?.currentPeriod ?? balance?.currentPeriod;
-  const periodOpen = isPeriodOpen(currentPeriod ?? null);
-  const unlockReached = config ? isUnlockReached(config.unlockDate) : false;
-  const contributedThisPeriod = myMember?.hasContributedThisPeriod === true;
-
-  const uxStatus = deriveSavingsDetailStatusKey({
-    memberStatus: myMember?.status,
-    periodOpen,
-    contributedThisPeriod,
-    unlockReached,
-  });
-
-  const statusChipLabel =
-    uxStatus === 'SUSPENDED'
-      ? t('savingsDetail.statusSuspended', 'Suspendu')
-      : uxStatus === 'LATE'
-        ? t('savingsDetail.statusLate', 'En retard')
-        : uxStatus === 'WITHDRAW_AVAILABLE'
-          ? t('savingsDetail.statusWithdrawReady', 'Retrait disponible')
-          : t('savingsDetail.statusUpToDate', 'À jour');
-
-  if (dashLoading && !dashboard) {
+  if (!uid) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1A6B3C" />
-      </View>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>Identifiant épargne manquant.</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  if (dashError || !dashboard) {
+  if (isLoading && !detail) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#1A6B3C" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isError || !detail) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <SavingsScreenHeader
-          title={t('savingsDetail.loadErrorTitle', 'Impossible de charger cette épargne')}
+          title="Épargne"
           onBack={() => navigation.goBack()}
-          backAccessibilityLabel={t('savingsDetail.backA11y', 'Retour')}
+          backAccessibilityLabel="Retour"
           titleNumberOfLines={2}
         />
         <View style={styles.errorBox}>
-          <Text style={styles.errorText}>
-            {t('savingsDetail.loadErrorHint', 'Vérifiez la connexion ou réessayez.')}
-          </Text>
+          <Text style={styles.errorText}>Impossible de charger cette épargne.</Text>
           <Pressable style={styles.retryBtn} onPress={() => refetchAll()}>
-            <Text style={styles.retryBtnText}>{t('savingsDetail.retry', 'Réessayer')}</Text>
+            <Text style={styles.retryBtnText}>Réessayer</Text>
           </Pressable>
         </View>
       </SafeAreaView>
     );
   }
 
-  const statusColor =
-    uxStatus === 'LATE'
-      ? '#B45309'
-      : uxStatus === 'SUSPENDED'
-        ? '#991B1B'
-        : uxStatus === 'WITHDRAW_AVAILABLE'
-          ? '#1A6B3C'
-          : STATUS_COLORS[dashboard.tontine.status] ?? '#9E9E9E';
+  const cfg = detail.config;
+  const maxM = cfg?.maxMembers ?? 0;
+  const targetGlobal = cfg?.targetAmountGlobal;
+  const unlockDateForHeader = cfg?.unlockDate ?? detail.unlockDate;
+  const minimumContribution =
+    cfg?.minimumContribution ?? detail.minimumContribution;
+  const collectedGlobal =
+    (detail as { totalCollectedGlobal?: number }).totalCollectedGlobal ??
+    detail.totalContributed;
+  const pct =
+    targetGlobal != null && targetGlobal > 0
+      ? progressPercent(collectedGlobal, targetGlobal)
+      : 0;
 
-  const statusChips: SavingsStatusChip[] = [
-    { key: 'member', label: statusChipLabel, backgroundColor: statusColor },
+  const badge = STATUS_BADGE[detail.status] ?? { bg: '#9E9E9E', label: detail.status };
+  const statusChips = [
     {
-      key: 'tontine',
-      label: dashboard.tontine.status,
-      backgroundColor: '#E5E7EB',
-      textColor: '#374151',
+      key: 's',
+      label: badge.label,
+      backgroundColor: badge.bg,
+      textColor: '#FFFFFF',
     },
   ];
 
-  const personalBalance = balance?.personalBalance ?? 0;
-  const targetPerMember = config?.targetAmountPerMember ?? null;
-
-  const nav = navigation as { navigate: (a: string, b: object) => void };
+  const showJoinBanner = detail.status === 'DRAFT' && !detail.myStatus;
+  const leftMember =
+    detail.myStatus === 'WITHDRAWN' || detail.myStatus === 'EXCLUDED';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <SavingsScreenHeader
-        title={dashboard.tontine.name}
+        title={detail.name}
+        subtitle={resolveUnlockLabel(unlockDateForHeader)}
         onBack={() => navigation.goBack()}
-        backAccessibilityLabel={t('savingsDetail.backA11y', 'Retour')}
+        backAccessibilityLabel="Retour"
         statusChips={statusChips}
         titleNumberOfLines={2}
       />
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -174,186 +151,99 @@ export const SavingsDetailScreen: React.FC = () => {
           />
         }
       >
-        {myMember?.status === 'WITHDRAWN' || myMember?.status === 'EXCLUDED' ? (
+        {leftMember ? (
           <View style={styles.bannerMuted}>
             <Text style={styles.bannerText}>
-              {t('tontineList.savingsInsightLeft', 'Vous ne participez plus à cette épargne.')}
+              Vous ne participez plus à cette épargne.
             </Text>
           </View>
         ) : null}
 
-        {dashboard.tontine.status === 'DRAFT' && !isMember && (
+        {showJoinBanner ? (
           <View style={styles.banner}>
             <Text style={styles.bannerText}>
-              {t('savingsDetail.bannerJoin', 'Vous n’avez pas encore rejoint cette tontine')}
+              Vous n&apos;avez pas encore rejoint cette tontine
             </Text>
             <Pressable
               style={styles.joinBtn}
               onPress={() => joinMutation.mutate()}
               disabled={joinMutation.isPending}
             >
-              <Text style={styles.joinBtnText}>{t('savingsDetail.joinCta', 'Rejoindre')}</Text>
+              <Text style={styles.joinBtnText}>Rejoindre</Text>
             </Pressable>
           </View>
-        )}
+        ) : null}
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t('savingsDetail.sectionProgressTitle', 'Aperçu')}</Text>
-          <Text style={styles.metaMuted}>{t('savingsDetail.balanceHint', 'Mon épargne actuelle')}</Text>
-          <Text style={styles.balanceBig}>{formatFCFA(personalBalance)}</Text>
-          <Text style={styles.meta}>{frequencyLabel(dashboard.tontine.frequency)}</Text>
-          {targetPerMember != null && targetPerMember > 0 && (
-            <SavingsProgressBar
-              current={personalBalance}
-              target={targetPerMember}
-              showLabel
-            />
-          )}
-          {periodOpen && currentPeriod?.closeDate ? (
-            <Text style={styles.periodHint}>
-              {t('savingsDetail.periodOpenHint', '{{days}} jour(s) restant(s) pour verser dans cette période', {
-                days: daysUntil(currentPeriod.closeDate),
-              })}
-            </Text>
+          <Text style={styles.cardTitle}>Progression collective</Text>
+          <SavingsInfoRow
+            label="Membres actifs / max"
+            value={`${detail.memberCount}${maxM > 0 ? ` / ${maxM}` : ''}`}
+          />
+          {targetGlobal != null && targetGlobal > 0 ? (
+            <>
+              <Text style={styles.metaMuted}>Collectif vs objectif</Text>
+              <SavingsProgressBar
+                current={collectedGlobal}
+                target={targetGlobal}
+                showLabel
+              />
+              <Text style={styles.metaSmall}>
+                {formatFcfa(collectedGlobal)} / {formatFcfa(targetGlobal)} ({pct}%)
+              </Text>
+            </>
           ) : null}
-          <View style={styles.cardActions}>
-            {periodOpen && currentPeriod ? (
-              <Pressable
-                style={styles.ctaOrange}
-                onPress={() => {
-                  nav.navigate('SavingsContributeScreen', {
-                    tontineUid,
-                    periodUid: currentPeriod.uid,
-                  });
-                }}
-              >
-                <Text style={styles.ctaText}>{t('savingsDetail.ctaContribute', 'Verser maintenant')}</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              style={styles.ctaSecondary}
-              onPress={() => nav.navigate('SavingsBalanceScreen', { tontineUid })}
-            >
-              <Text style={styles.ctaSecondaryText}>
-                {t('savingsDetail.ctaBalance', 'Mon solde et mes versements')}
-              </Text>
-            </Pressable>
-          </View>
+          <SavingsInfoRow
+            label="Fréquence des versements"
+            value={frequencyLabel(detail.frequency)}
+          />
+          <SavingsInfoRow
+            label="Montant minimum par période"
+            value={formatFcfa(minimumContribution)}
+          />
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t('savingsDetail.sectionGroupTitle', 'Le groupe')}</Text>
-          <Text style={styles.meta}>
-            {t('savingsDetail.membersCount', '{{count}} membre(s) actif(s)', {
-              count: dashboard.members.length,
-            })}
-          </Text>
-          {config?.targetAmountGlobal != null && dashboard.globalProgressPercent != null && (
-            <SavingsProgressBar
-              current={(dashboard.globalProgressPercent / 100) * config.targetAmountGlobal}
-              target={config.targetAmountGlobal}
-              showLabel
-            />
-          )}
-          <Text style={styles.meta}>
-            {t('savingsDetail.bonusPool', 'Fonds bonus : {{amount}}', {
-              amount: formatFCFA(dashboard.bonusPoolBalance),
-            })}
-          </Text>
+          <Text style={styles.cardTitle}>Mon solde</Text>
+          <Text style={styles.balanceBig}>{formatFcfa(detail.personalBalance)}</Text>
           <Pressable
-            style={styles.ctaSecondary}
-            onPress={() => nav.navigate('SavingsDashboardScreen', { tontineUid })}
+            style={styles.chipRow}
+            onPress={() => navigation.navigate('SavingsMyBalanceScreen', { uid })}
           >
-            <Text style={styles.ctaSecondaryText}>
-              {t('savingsDetail.ctaDashboard', 'Tableau de bord')}
-            </Text>
+            <Text style={styles.chipText}>Voir ma projection →</Text>
           </Pressable>
         </View>
 
-        {config != null ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{t('savingsDetail.sectionRulesTitle', 'Règles')}</Text>
-            <Text style={styles.meta}>
-              {t('savingsDetail.ruleMin', 'Versement minimum : {{amount}}', {
-                amount: formatFCFA(config.minimumContribution),
-              })}
-            </Text>
-            <Text style={styles.meta}>
-              {t('savingsDetail.ruleBonus', 'Bonus (%) : {{n}}', { n: config.bonusRatePercent })}
-            </Text>
-            <Text style={styles.meta}>
-              {t('savingsDetail.ruleUnlock', 'Déblocage du capital : {{date}}', {
-                date: formatDateLong(config.unlockDate.split('T')[0]),
-              })}
-            </Text>
-            <Text style={styles.meta}>
-              {t('savingsDetail.ruleEarlyExit', 'Pénalité sortie anticipée : {{n}} %', {
-                n: config.earlyExitPenaltyPercent,
-              })}
-            </Text>
-            <Text style={styles.meta}>
-              {config.isPrivate
-                ? t('savingsDetail.rulePrivacyOn', 'Soldes individuels masqués pour les autres membres.')
-                : t('savingsDetail.rulePrivacyOff', 'Les soldes individuels sont visibles selon les règles du groupe.')}
-            </Text>
-          </View>
-        ) : null}
-
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t('savingsDetail.sectionPeriodsTitle', 'Périodes')}</Text>
-          {periodsLoading ? (
-            <ActivityIndicator color="#1A6B3C" />
-          ) : periods.length === 0 ? (
-            <Text style={styles.meta}>{t('savingsDetail.emptyPeriods', 'Aucune période listée pour l’instant.')}</Text>
-          ) : (
-            periods.map((p) => (
-              <Text key={p.uid} style={styles.periodLine}>
-                {t('savingsDetail.periodLine', 'P. {{n}} · {{status}} · {{open}} → {{close}}', {
-                  n: p.periodNumber,
-                  status: periodStatusLabel(p.status, t),
-                  open: shortDate(p.openDate),
-                  close: shortDate(p.closeDate),
-                })}
-              </Text>
-            ))
-          )}
+          <Text style={styles.cardTitle}>Fonds bonus commun</Text>
+          <Text style={styles.balanceMid}>{formatFcfa(bonusPool?.currentBalance ?? 0)}</Text>
+          <Text style={styles.metaMuted}>Bonus accumulé (redistribution interne)</Text>
+          <Text style={styles.disclaimer}>Indicatif — non garanti</Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t('savingsDetail.sectionWithdrawTitle', 'Retrait')}</Text>
-          <Text style={styles.meta}>{t('savingsDetail.withdrawHint', 'Retrait ou sortie anticipée selon votre situation.')}</Text>
+          <Text style={styles.cardTitle}>Actions</Text>
+          <Pressable
+            style={styles.ctaPrimary}
+            onPress={() => navigation.navigate('SavingsPeriodsScreen', { uid })}
+          >
+            <Text style={styles.ctaPrimaryText}>Verser ma cotisation</Text>
+          </Pressable>
           <Pressable
             style={styles.ctaSecondary}
-            onPress={() => nav.navigate('SavingsWithdrawScreen', { tontineUid })}
+            onPress={() => navigation.navigate('SavingsMyBalanceScreen', { uid })}
           >
-            <Text style={styles.ctaSecondaryText}>
-              {t('savingsDetail.ctaWithdrawShort', 'Voir retrait')}
-            </Text>
+            <Text style={styles.ctaSecondaryText}>Voir ma projection</Text>
           </Pressable>
-        </View>
-
-        {unlockReached ? (
-          <View style={styles.unlockBanner}>
-            <Text style={styles.unlockText}>
-              {t('savingsDetail.unlockAvailable', 'Votre épargne est disponible !')}
-            </Text>
-            <Pressable
-              style={styles.unlockBtn}
-              onPress={() => nav.navigate('SavingsWithdrawScreen', { tontineUid })}
-            >
-              <Text style={styles.unlockBtnText}>{t('savingsDetail.ctaWithdraw', 'Retirer mes fonds')}</Text>
+          {isCreator === true && detail.status === 'ACTIVE' ? (
+            <Pressable style={styles.ctaPlaceholder} disabled>
+              <Text style={styles.ctaPlaceholderText}>Gérer les membres (bientôt)</Text>
             </Pressable>
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT: '#9E9E9E',
-  ACTIVE: '#1A6B3C',
-  COMPLETED: '#0055A5',
 };
 
 const styles = StyleSheet.create({
@@ -395,16 +285,28 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#1C1C1E', marginBottom: 12 },
   balanceBig: { fontSize: 28, fontWeight: '700', color: '#1A6B3C', marginBottom: 8 },
-  periodHint: { fontSize: 13, color: '#6B7280', marginBottom: 12 },
-  cardActions: { gap: 12, marginTop: 12 },
-  ctaOrange: {
+  balanceMid: { fontSize: 20, fontWeight: '700', color: '#1C1C1E', marginBottom: 4 },
+  chipRow: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#E8F5E9',
+  },
+  chipText: { fontSize: 14, fontWeight: '600', color: '#1A6B3C' },
+  metaMuted: { fontSize: 12, color: '#9CA3AF', marginBottom: 4 },
+  metaSmall: { fontSize: 14, color: '#1C1C1E', marginBottom: 8 },
+  disclaimer: { fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' },
+  ctaPrimary: {
     height: 52,
     backgroundColor: '#F5A623',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 12,
   },
-  ctaText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  ctaPrimaryText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
   ctaSecondary: {
     height: 48,
     borderWidth: 1,
@@ -412,26 +314,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 12,
   },
   ctaSecondaryText: { fontSize: 14, fontWeight: '600', color: '#1A6B3C' },
-  meta: { fontSize: 14, color: '#6B7280', marginBottom: 8 },
-  metaMuted: { fontSize: 12, color: '#9CA3AF', marginBottom: 4 },
-  periodLine: { fontSize: 13, color: '#374151', marginBottom: 6 },
-  unlockBanner: {
-    backgroundColor: '#DCFCE7',
-    padding: 16,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  unlockText: { fontSize: 14, fontWeight: '600', color: '#1A6B3C', marginBottom: 12 },
-  unlockBtn: {
+  ctaPlaceholder: {
     height: 48,
-    backgroundColor: '#1A6B3C',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#E5E7EB',
   },
-  unlockBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  ctaPlaceholderText: { fontSize: 14, fontWeight: '600', color: '#6B7280' },
   errorBox: { padding: 24 },
   errorText: { fontSize: 15, color: '#4B5563', marginBottom: 16 },
   retryBtn: {

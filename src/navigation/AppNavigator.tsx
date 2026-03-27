@@ -67,9 +67,12 @@ import {
 } from '@/services/fcmNotificationHandler';
 import {
   SavingsCreateScreen,
+  SavingsListScreen,
   SavingsDetailScreen,
   SavingsDashboardScreen,
   SavingsBalanceScreen,
+  SavingsMyBalanceScreen,
+  SavingsPeriodsScreen,
   SavingsContributeScreen,
   SavingsWithdrawScreen,
 } from '@/screens/savings';
@@ -427,9 +430,12 @@ export const AppNavigator: React.FC = () => {
           options={{ headerShown: true, title: 'Contrat de tontine', headerBackTitle: '' }}
         />
         <RootStack.Screen name="SavingsCreateScreen" component={SavingsCreateScreen} />
+        <RootStack.Screen name="SavingsListScreen" component={SavingsListScreen} />
         <RootStack.Screen name="SavingsDetailScreen" component={SavingsDetailScreen} />
         <RootStack.Screen name="SavingsDashboardScreen" component={SavingsDashboardScreen} />
         <RootStack.Screen name="SavingsBalanceScreen" component={SavingsBalanceScreen} />
+        <RootStack.Screen name="SavingsMyBalanceScreen" component={SavingsMyBalanceScreen} />
+        <RootStack.Screen name="SavingsPeriodsScreen" component={SavingsPeriodsScreen} />
         <RootStack.Screen name="SavingsContributeScreen" component={SavingsContributeScreen} />
         <RootStack.Screen name="SavingsWithdrawScreen" component={SavingsWithdrawScreen} />
       </RootStack.Navigator>

@@ -74,6 +74,7 @@ function sumPenaltyFromList(items: TontineListItem[]): number {
  */
 export function estimatedBonusDeltaFromBalance(b: MyBalanceResponse): number | null {
   const proj = b.estimatedFinalBalance;
+  if (proj === undefined || proj === null) return null;
   const paid = b.totalContributed;
   if (!Number.isFinite(proj) || !Number.isFinite(paid)) return null;
   const d = proj - paid;
