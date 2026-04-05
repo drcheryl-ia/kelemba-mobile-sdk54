@@ -1,97 +1,74 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+/**
+ * Création unifiée — tontine rotative (POST /tontines) et épargne (POST /savings).
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  Pressable,
   ScrollView,
   StyleSheet,
   Alert,
   Platform,
   KeyboardAvoidingView,
+  Pressable,
+  TouchableOpacity,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useTranslation } from 'react-i18next';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import Svg, { Path } from 'react-native-svg';
+
 import type { RootStackParamList } from '@/navigation/types';
 import type { RootState } from '@/store/store';
 import { selectAccountType } from '@/store/authSlice';
 import { createTontine } from '@/api/tontinesApi';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { logger } from '@/utils/logger';
-import { parseFcfa, formatFcfa } from '@/utils/formatters';
-import type { CreateTontineDto } from '@/api/types/api.types';
-import { WizardProgressBar, WizardFooter } from '@/components/tontineCreate';
+import { formatFcfa, formatFcfaAmount, formatDateLong, parseFcfa } from '@/utils/formatters';
+import type { CreateTontineDto, RotationMode, TontineFrequency } from '@/api/types/api.types';
+import type { CreateSavingsTontinePayload } from '@/types/savings.types';
+import type { SavingsFrequency } from '@/types/savings.types';
+import { useCreateSavingsTontine } from '@/hooks/useSavings';
+import { COLORS } from '@/theme/colors';
+import {
+  CreateStepHeader,
+  FormSectionCard,
+  FormFieldInput,
+  FormFreqGrid,
+  FormSliderField,
+  FormToggleRow,
+  FormModeGrid,
+  FormInfoBanner,
+  FormWarnBanner,
+  FormNavButtons,
+  CreateSummaryCard,
+} from '@/components/create-tontine';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateTontine'>;
 
-const step1Schema = z.object({
-  name: z
-    .string()
-    .min(3, 'Le nom doit contenir au moins 3 caractères')
-    .max(100, 'Le nom ne peut pas dépasser 100 caractères'),
-  amountPerShare: z
-    .number({ invalid_type_error: 'Montant requis' })
-    .int('Le montant doit être un entier FCFA')
-    .min(500, 'Minimum 500 FCFA par part'),
-  frequency: z.enum(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']),
-  startDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Format attendu : YYYY-MM-DD')
-    .refine(
-      (val) => new Date(val) > new Date(),
-      'La date de début doit être dans le futur'
-    ),
-});
+const rotativeSteps = [
+  { label: 'Paramètres' },
+  { label: 'Règles' },
+  { label: 'Rotation' },
+  { label: 'Résumé' },
+] as const;
 
-const step2Schema = z
-  .object({
-    penaltyType: z.enum(['FIXED', 'PERCENTAGE']),
-    penaltyValue: z
-      .number()
-      .int()
-      .min(0, 'La valeur de pénalité doit être positive'),
-    gracePeriodDays: z.number().int().min(0).max(7),
-    suspensionAfterDays: z.number().int().min(1).max(30),
-  })
-  .refine(
-    (data) =>
-      !(data.penaltyType === 'PERCENTAGE' && data.penaltyValue > 100),
-    { message: 'Le pourcentage ne peut pas dépasser 100 %', path: ['penaltyValue'] }
-  );
-
-const step3Schema = z.object({
-  rotationType: z.enum(['RANDOM', 'MANUAL']),
-});
-
-const fullSchema = step1Schema.merge(step2Schema).merge(step3Schema);
-
-type FormData = z.infer<typeof fullSchema>;
-
-const STEP1_FIELDS = ['name', 'amountPerShare', 'frequency', 'startDate'] as const;
-const STEP2_FIELDS = ['penaltyType', 'penaltyValue', 'gracePeriodDays', 'suspensionAfterDays'] as const;
-const STEP3_FIELDS = ['rotationType'] as const;
-
-function formatDateToDisplay(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
+const epargneSteps = [
+  { label: 'Paramètres' },
+  { label: 'Objectifs' },
+  { label: 'Conditions' },
+  { label: 'Résumé' },
+] as const;
 
 const TOMORROW = (() => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
+  d.setHours(0, 0, 0, 0);
   return d;
 })();
 
@@ -102,1094 +79,1078 @@ function getTomorrowISO(): string {
   return `${y}-${m}-${day}`;
 }
 
-export const CreateTontineScreen: React.FC<Props> = ({ navigation }) => {
-  const { t } = useTranslation();
+function getDefaultUnlockISO(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 12);
+  return d.toISOString().slice(0, 10);
+}
+
+function freqLabel(f: TontineFrequency | SavingsFrequency): string {
+  switch (f) {
+    case 'DAILY':
+      return 'quotidienne';
+    case 'WEEKLY':
+      return 'hebdo';
+    case 'BIWEEKLY':
+      return 'bimensuelle';
+    case 'MONTHLY':
+      return 'mensuelle';
+    default:
+      return String(f);
+  }
+}
+
+function rotationModeLabel(m: RotationMode): string {
+  switch (m) {
+    case 'ARRIVAL':
+      return "Ordre d'arrivée";
+    case 'RANDOM':
+      return 'Tirage au sort';
+    case 'MANUAL':
+      return 'Manuel';
+    default:
+      return String(m);
+  }
+}
+
+function formatDate(iso: string): string {
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${iso}T00:00:00`));
+}
+
+function calculateWeeks(startIso: string, endIso: string): number {
+  const a = new Date(`${startIso}T00:00:00`).getTime();
+  const b = new Date(`${endIso}T00:00:00`).getTime();
+  return Math.ceil((b - a) / (7 * 86_400_000));
+}
+
+function estimatePeriods(weeks: number, f: SavingsFrequency): number {
+  if (f === 'WEEKLY') return Math.max(1, weeks);
+  if (f === 'BIWEEKLY') return Math.max(1, Math.floor(weeks / 2));
+  return Math.max(1, Math.ceil(weeks / 4));
+}
+
+const optionalIntMin500 = z.preprocess(
+  (v) => {
+    if (v === '' || v == null || v === undefined) return undefined;
+    const n = typeof v === 'number' ? v : parseInt(String(v).replace(/\D/g, ''), 10);
+    return Number.isNaN(n) ? undefined : n;
+  },
+  z.number().int().min(500).optional()
+);
+
+const preprocessNonEmptyNumber = (v: unknown): number | undefined => {
+  if (v === '' || v == null || v === undefined) return undefined;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const n = Number(String(v).replace(/\D/g, ''));
+  return Number.isNaN(n) ? undefined : n;
+};
+
+const rotativeSchema = z
+  .object({
+    name: z.preprocess(
+      (v) => {
+        if (typeof v === 'number') return '';
+        if (v == null) return '';
+        return String(v);
+      },
+      z.string().min(3).max(100)
+    ),
+    amountPerShare: z.preprocess(
+      preprocessNonEmptyNumber,
+      z.number().int().min(500).max(10_000_000)
+    ),
+    frequency: z.enum(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']),
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .refine((d) => new Date(`${d}T23:59:59`) > new Date(), {
+        message: 'Date future requise',
+      }),
+    penaltyRate: z.preprocess(
+      preprocessNonEmptyNumber,
+      z.number().min(0).max(50)
+    ),
+    gracePeriodDays: z.number().int().min(0).max(7),
+    maxSharesPerMember: z
+      .enum(['1', '2', '3', '4', '5'])
+      .transform((s) => parseInt(s, 10)),
+    minScoreRequired: z.number().int().min(0).max(1000).optional(),
+    requireMinScore: z.boolean(),
+    rotationMode: z.enum(['ARRIVAL', 'RANDOM', 'MANUAL']),
+    isPublicLink: z.boolean(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.requireMinScore && data.minScoreRequired == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['minScoreRequired'],
+        message: 'Indiquez un score minimum',
+      });
+    }
+  });
+
+function validUnlockDate(data: { startDate: string; unlockDate: string }): boolean {
+  return new Date(`${data.unlockDate}T00:00:00`) > new Date(`${data.startDate}T00:00:00`);
+}
+
+const epargneSchema = z
+  .object({
+    name: z.string().min(3).max(100),
+    minimumContribution: z.coerce.number().int().min(500),
+    frequency: z.enum(['WEEKLY', 'BIWEEKLY', 'MONTHLY']),
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .refine((d) => new Date(`${d}T23:59:59`) > new Date(), {
+        message: 'Date future requise',
+      }),
+    unlockDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    targetAmountPerMember: optionalIntMin500,
+    targetAmountGlobal: optionalIntMin500,
+    bonusRatePercent: z.number().int().min(0).max(20),
+    minScoreRequired: z.number().int().min(0).max(1000),
+    maxMembers: z.number().int().min(2).max(50),
+    earlyExitPenaltyPercent: z.number().int().min(0).max(30),
+    isPrivate: z.boolean(),
+  })
+  .superRefine((data, ctx) => {
+    if (!validUnlockDate(data)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['unlockDate'],
+        message: 'Doit être après la date de démarrage',
+      });
+    }
+  });
+
+/** Types formulaire alignés sur l’UI (chaînes pour champs formatés / grille). */
+type RotativeFormInput = {
+  name: string;
+  amountPerShare: number | string;
+  frequency: 'DAILY' | 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY';
+  startDate: string;
+  penaltyRate: number | string;
+  gracePeriodDays: number;
+  maxSharesPerMember: string;
+  minScoreRequired?: number;
+  requireMinScore: boolean;
+  rotationMode: RotationMode;
+  isPublicLink: boolean;
+};
+
+type EpargneFormInput = {
+  name: string;
+  minimumContribution: number | string;
+  frequency: SavingsFrequency;
+  startDate: string;
+  unlockDate: string;
+  targetAmountPerMember?: number | string;
+  targetAmountGlobal?: number | string;
+  bonusRatePercent: number;
+  minScoreRequired: number;
+  maxMembers: number;
+  earlyExitPenaltyPercent: number;
+  isPrivate: boolean;
+};
+
+type RotativeFieldKey = keyof RotativeFormInput;
+type EpargneFieldKey = keyof EpargneFormInput;
+
+function getFieldsForStep(
+  type: 'ROTATIVE' | 'EPARGNE',
+  step: number,
+  requireMinScore: boolean
+): RotativeFieldKey[] | EpargneFieldKey[] {
+  if (type === 'ROTATIVE') {
+    const rotativeFields: RotativeFieldKey[][] = [
+      ['name', 'amountPerShare', 'frequency', 'startDate'],
+      requireMinScore
+        ? ['penaltyRate', 'gracePeriodDays', 'maxSharesPerMember', 'minScoreRequired']
+        : ['penaltyRate', 'gracePeriodDays', 'maxSharesPerMember'],
+      ['rotationMode', 'isPublicLink'],
+      [],
+    ];
+    return rotativeFields[step] ?? [];
+  }
+  const epargneFields: EpargneFieldKey[][] = [
+    ['name', 'minimumContribution', 'frequency', 'startDate', 'unlockDate'],
+    ['bonusRatePercent'],
+    ['minScoreRequired', 'maxMembers', 'earlyExitPenaltyPercent', 'isPrivate'],
+    [],
+  ];
+  return epargneFields[step] ?? [];
+}
+
+function formatDigitsFcfa(val: string): string {
+  return formatFcfaAmount(parseFcfa(val));
+}
+
+function BackChevronWhite(): React.ReactElement {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M15 18l-6-6 6-6"
+        stroke={COLORS.white}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function IconArrival(): React.ReactElement {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+        stroke={COLORS.primary}
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+function IconShuffle(): React.ReactElement {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"
+        stroke={COLORS.primary}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function IconManual(): React.ReactElement {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M6 9l6 6 6-6"
+        stroke={COLORS.primary}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export const CreateTontineScreen: React.FC<Props> = ({ navigation, route }) => {
   const queryClient = useQueryClient();
   const accountType = useSelector(selectAccountType);
+  const insets = useSafeAreaInsets();
 
-  const [step, setStep] = useState(1);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const initialType = route.params?.initialType ?? 'ROTATIVE';
+  const [tontineType, setTontineType] = useState<'ROTATIVE' | 'EPARGNE'>(initialType);
+  const [currentStep, setCurrentStep] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
 
-  const {
-    control,
-    handleSubmit,
-    watch,
-    trigger,
-    setError,
-    setValue,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(fullSchema),
+  const [datePicker, setDatePicker] = useState<'rot_start' | 'ep_start' | 'ep_unlock' | null>(null);
+
+  const rotativeForm = useForm<RotativeFormInput>({
+    resolver: zodResolver(rotativeSchema) as unknown as Resolver<RotativeFormInput>,
     defaultValues: {
       name: '',
       amountPerShare: 500,
       frequency: 'MONTHLY',
       startDate: getTomorrowISO(),
-      penaltyType: 'FIXED',
-      penaltyValue: 0,
-      gracePeriodDays: 0,
-      suspensionAfterDays: 7,
-      rotationType: 'RANDOM',
+      penaltyRate: 5,
+      gracePeriodDays: 3,
+      maxSharesPerMember: '1',
+      minScoreRequired: 300,
+      requireMinScore: false,
+      rotationMode: 'ARRIVAL',
+      isPublicLink: false,
     },
   });
 
-  const frequency = watch('frequency');
-  const penaltyType = watch('penaltyType');
-  const startDate = watch('startDate');
-  const formValues = watch();
+  const epargneForm = useForm<EpargneFormInput>({
+    resolver: zodResolver(epargneSchema) as unknown as Resolver<EpargneFormInput>,
+    defaultValues: {
+      name: '',
+      minimumContribution: 500,
+      frequency: 'MONTHLY',
+      startDate: getTomorrowISO(),
+      unlockDate: getDefaultUnlockISO(),
+      targetAmountPerMember: undefined,
+      targetAmountGlobal: undefined,
+      bonusRatePercent: 0,
+      minScoreRequired: 300,
+      maxMembers: 20,
+      earlyExitPenaltyPercent: 5,
+      isPrivate: false,
+    },
+  });
 
-  const step1Valid = useMemo(
-    () =>
-      step1Schema.safeParse({
-        name: formValues.name,
-        amountPerShare: formValues.amountPerShare,
-        frequency: formValues.frequency,
-        startDate: formValues.startDate,
-      }).success,
-    [
-      formValues.name,
-      formValues.amountPerShare,
-      formValues.frequency,
-      formValues.startDate,
-    ]
-  );
-  const step2Valid = useMemo(
-    () =>
-      step2Schema.safeParse({
-        penaltyType: formValues.penaltyType,
-        penaltyValue: formValues.penaltyValue,
-        gracePeriodDays: formValues.gracePeriodDays,
-        suspensionAfterDays: formValues.suspensionAfterDays,
-      }).success,
-    [
-      formValues.penaltyType,
-      formValues.penaltyValue,
-      formValues.gracePeriodDays,
-      formValues.suspensionAfterDays,
-    ]
-  );
-  const step3Valid = useMemo(
-    () =>
-      step3Schema.safeParse({
-        rotationType: formValues.rotationType,
-      }).success,
-    [formValues.rotationType]
-  );
+  const requireMinScore = rotativeForm.watch('requireMinScore');
+  const epStart = epargneForm.watch('startDate');
+  const epUnlock = epargneForm.watch('unlockDate');
+  const epFreq = epargneForm.watch('frequency');
 
-  const nextDisabled =
-    (step === 1 && !step1Valid) ||
-    (step === 2 && !step2Valid) ||
-    (step === 3 && !step3Valid);
+  const currentSteps = tontineType === 'ROTATIVE' ? rotativeSteps : epargneSteps;
+
+  const createRotativeMutation = useMutation({
+    mutationFn: createTontine,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tontines'] });
+    },
+  });
+
+  const createSavingsMutation = useCreateSavingsTontine();
+
+  const isSubmitting = createRotativeMutation.isPending || createSavingsMutation.isPending;
+
+  const handleTypeChange = useCallback((newType: 'ROTATIVE' | 'EPARGNE') => {
+    setTontineType(newType);
+    setCurrentStep(0);
+    rotativeForm.reset();
+    epargneForm.reset();
+  }, [rotativeForm, epargneForm]);
 
   useEffect(() => {
     if (accountType !== 'ORGANISATEUR') {
       Alert.alert(
-        t('createTontine.accessDeniedTitle', 'Accès réservé'),
-        t('createTontine.accessDeniedMessage', 'Seuls les organisateurs peuvent créer des tontines.'),
-        [{ text: t('common.back'), onPress: () => navigation.goBack() }]
+        'Accès réservé',
+        'Seuls les organisateurs peuvent créer des tontines.',
+        [{ text: 'Retour', onPress: () => navigation.goBack() }]
       );
     }
-  }, [accountType, navigation, t]);
+  }, [accountType, navigation]);
 
-  const handleNext = useCallback(async () => {
-    const fields =
-      step === 1
-        ? STEP1_FIELDS
-        : step === 2
-          ? STEP2_FIELDS
-          : STEP3_FIELDS;
-    const valid = await trigger([...fields]);
-    if (valid) setStep((s) => Math.min(4, s + 1));
-  }, [step, trigger]);
+  const handlePrev = useCallback(() => {
+    setCurrentStep((s) => Math.max(0, s - 1));
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
 
-  const handleCancel = useCallback(() => {
-    Alert.alert(
-      t('createTontine.cancelTitle', 'Annuler'),
-      t('createTontine.cancelMessage', 'Êtes-vous sûr de vouloir quitter ? Les données seront perdues.'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        { text: t('createTontine.quit', 'Quitter'), style: 'destructive', onPress: () => navigation.goBack() },
-      ]
-    );
-  }, [navigation, t]);
+  const firstZodIssueMessage = useCallback((error: z.ZodError): string => {
+    const issue = error.issues[0];
+    return issue?.message ?? 'Les données du formulaire sont invalides.';
+  }, []);
 
-  const onSubmit = async (data: FormData) => {
-    setSubmitError(null);
-    const payload: CreateTontineDto = {
-      name: data.name,
-      amountPerShare: Math.round(data.amountPerShare),
-      frequency: data.frequency,
-      startDate: data.startDate,
-      rotationMode: data.rotationType,
-      rules: {
-        penaltyType: data.penaltyType,
-        penaltyValue: data.penaltyValue,
-        gracePeriodDays: data.gracePeriodDays,
-        suspensionAfterDays: data.suspensionAfterDays,
-      },
-    };
-
+  const handleCreateSubmit = useCallback(async () => {
     try {
-      const tontine = await createTontine(payload);
-      queryClient.invalidateQueries({ queryKey: ['tontines'] });
-      navigation.replace('TontineDetails', { tontineUid: tontine.uid });
-    } catch (err: unknown) {
-      const apiErr = parseApiError(err);
-      logger.error('CreateTontine submit failed', { code: apiErr.code });
+      if (tontineType === 'ROTATIVE') {
+        const parsed = rotativeSchema.safeParse(rotativeForm.getValues());
+        if (!parsed.success) {
+          Alert.alert('Vérification', firstZodIssueMessage(parsed.error));
+          return;
+        }
+        const values = parsed.data;
+        const payload: CreateTontineDto = {
+          name: values.name.trim(),
+          amountPerShare: Number(values.amountPerShare),
+          frequency: values.frequency,
+          startDate: values.startDate,
+          rotationMode: values.rotationMode ?? 'ARRIVAL',
+          rules: {
+            penaltyRate: Number(values.penaltyRate ?? 0),
+            gracePeriodDays: Number(values.gracePeriodDays ?? 0),
+            maxSharesPerMember: Number(values.maxSharesPerMember ?? 1),
+            minScoreRequired: values.requireMinScore
+              ? Number(values.minScoreRequired)
+              : undefined,
+            isPublicLink: values.isPublicLink,
+          },
+        };
+        logger.info('CreateTontine: submitting ROTATIVE', { name: payload.name });
+        const data = await createRotativeMutation.mutateAsync(payload);
+        await queryClient.invalidateQueries({ queryKey: ['tontines'] });
+        navigation.replace('TontineDetails', {
+          tontineUid: data.uid,
+          isCreator: true,
+          tab: 'dashboard',
+        });
+        return;
+      }
 
-      if (apiErr.httpStatus === 400 && apiErr.details) {
+      const parsedEp = epargneSchema.safeParse(epargneForm.getValues());
+      if (!parsedEp.success) {
+        Alert.alert('Vérification', firstZodIssueMessage(parsedEp.error));
+        return;
+      }
+      const ev = parsedEp.data;
+      const payload: CreateSavingsTontinePayload = {
+        name: ev.name.trim(),
+        minimumContribution: Number(ev.minimumContribution),
+        frequency: ev.frequency,
+        startDate: ev.startDate,
+        unlockDate: ev.unlockDate,
+        bonusRatePercent: Number(ev.bonusRatePercent ?? 0),
+        minScoreRequired: Number(ev.minScoreRequired ?? 300),
+        maxMembers: Number(ev.maxMembers ?? 50),
+        earlyExitPenaltyPercent: Number(ev.earlyExitPenaltyPercent ?? 5),
+        isPrivate: Boolean(ev.isPrivate ?? false),
+      };
+      if (ev.targetAmountPerMember != null) {
+        payload.targetAmountPerMember = Number(ev.targetAmountPerMember);
+      }
+      if (ev.targetAmountGlobal != null) {
+        payload.targetAmountGlobal = Number(ev.targetAmountGlobal);
+      }
+      logger.info('CreateTontine: submitting EPARGNE', { name: payload.name });
+      const data = await createSavingsMutation.mutateAsync(payload);
+      await queryClient.invalidateQueries({ queryKey: ['savings', 'list'] });
+      await queryClient.invalidateQueries({ queryKey: ['tontines'] });
+      const uid = data.uid;
+      if (uid) {
+        navigation.replace('SavingsDetailScreen', { tontineUid: uid, isCreator: true });
+      } else {
+        Alert.alert(
+          'Création impossible',
+          'La réponse du serveur ne contient pas d’identifiant de tontine.'
+        );
+      }
+    } catch (err: unknown) {
+      logger.error('CreateTontine submit error', err);
+      const apiErr = parseApiError(err);
+      if (
+        tontineType === 'ROTATIVE' &&
+        apiErr.httpStatus === 400 &&
+        apiErr.details
+      ) {
         const details = apiErr.details as Record<string, string[]>;
         for (const [field, messages] of Object.entries(details)) {
           const msg = Array.isArray(messages) ? messages[0] : String(messages);
-          setError(field as keyof FormData, { message: msg });
+          rotativeForm.setError(field as keyof RotativeFormInput, { message: msg });
         }
         return;
       }
-      if (apiErr.httpStatus === 403) {
-        setSubmitError(t('createTontine.errorKyc', 'KYC requis pour créer une tontine.'));
-        return;
-      }
-      if (apiErr.httpStatus === 409) {
-        setSubmitError(t('createTontine.errorNameExists', 'Ce nom de tontine existe déjà.'));
-        return;
-      }
-      setSubmitError(t('register.errorNetwork', 'Vérifiez votre connexion et réessayez.'));
+      const message =
+        apiErr.message ??
+        (err instanceof Error ? err.message : 'Erreur inconnue');
+      Alert.alert(
+        'Création impossible',
+        `La tontine n'a pas pu être créée.\n\n${message}`,
+        [{ text: 'OK' }]
+      );
     }
-  };
+  }, [
+    createRotativeMutation,
+    createSavingsMutation,
+    epargneForm,
+    firstZodIssueMessage,
+    navigation,
+    queryClient,
+    rotativeForm,
+    tontineType,
+  ]);
 
-  const onDateChange = (_: unknown, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios');
-    if (selectedDate) {
-      const y = selectedDate.getFullYear();
-      const m = String(selectedDate.getMonth() + 1).padStart(2, '0');
-      const d = String(selectedDate.getDate()).padStart(2, '0');
-      setValue('startDate', `${y}-${m}-${d}`);
+  const handleNextOrSubmit = useCallback(async () => {
+    const form = tontineType === 'ROTATIVE' ? rotativeForm : epargneForm;
+    const steps = tontineType === 'ROTATIVE' ? rotativeSteps : epargneSteps;
+    const isLast = currentStep === steps.length - 1;
+    const fieldsForStep = getFieldsForStep(tontineType, currentStep, requireMinScore);
+
+    if (!isLast) {
+      let valid = true;
+      if (fieldsForStep.length > 0) {
+        valid = await form.trigger(fieldsForStep as never);
+      }
+      if (!valid) {
+        logger.warn('CreateTontine: validation failed at step', { step: currentStep });
+        return;
+      }
+      setCurrentStep((s) => s + 1);
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
     }
-  };
+
+    await handleCreateSubmit();
+  }, [
+    currentStep,
+    epargneForm,
+    handleCreateSubmit,
+    requireMinScore,
+    rotativeForm,
+    tontineType,
+  ]);
+
+  const renderRotativeStep = useCallback(
+    (step: number): React.ReactElement => {
+      const control = rotativeForm.control;
+      switch (step) {
+        case 0:
+          return (
+            <>
+              <FormSectionCard title="Informations générales">
+                <FormFieldInput
+                  name="name"
+                  control={control}
+                  label="Nom de la tontine"
+                  placeholder="Ex. Tontine Solidarité KM5"
+                  maxLength={100}
+                />
+                <FormFieldInput
+                  name="amountPerShare"
+                  control={control}
+                  label="Montant par part"
+                  keyboardType="number-pad"
+                  suffix="FCFA"
+                  formatValue={formatDigitsFcfa}
+                />
+                <View style={styles.freqBlock}>
+                  <Text style={styles.freqLabel}>Fréquence des cotisations</Text>
+                  <FormFreqGrid
+                    name="frequency"
+                    control={control}
+                    columns={2}
+                    options={[
+                      { value: 'MONTHLY', label: 'Mensuelle' },
+                      { value: 'WEEKLY', label: 'Hebdomadaire' },
+                      { value: 'BIWEEKLY', label: 'Bimensuelle' },
+                      { value: 'DAILY', label: 'Quotidienne' },
+                    ]}
+                  />
+                </View>
+              </FormSectionCard>
+              <FormSectionCard title="Calendrier">
+                <Controller
+                  control={control}
+                  name="startDate"
+                  render={({ field: { value }, fieldState: { error } }) => (
+                    <Pressable
+                      onPress={() => setDatePicker('rot_start')}
+                      style={styles.datePress}
+                      accessibilityRole="button"
+                      accessibilityLabel="Date de démarrage"
+                    >
+                      <Text style={styles.freqLabel}>Date de démarrage</Text>
+                      <View style={styles.dateFieldWrap}>
+                        <Text style={styles.dateFieldText}>
+                          {value ? formatDateLong(value) : 'Choisir une date'}
+                        </Text>
+                      </View>
+                      {error?.message != null && error.message !== '' ? (
+                        <Text style={styles.dateErr}>{error.message}</Text>
+                      ) : null}
+                    </Pressable>
+                  )}
+                />
+                <FormInfoBanner message="Le nombre de cycles est calculé automatiquement à l'activation selon les membres actifs." />
+              </FormSectionCard>
+            </>
+          );
+        case 1:
+          return (
+            <>
+              <FormSectionCard title="Pénalités de retard">
+                <FormFieldInput
+                  name="penaltyRate"
+                  control={control}
+                  label="Taux de pénalité par jour"
+                  keyboardType="number-pad"
+                  suffix="% du montant dû"
+                />
+                <FormSliderField
+                  name="gracePeriodDays"
+                  control={control}
+                  label="Délai de grâce"
+                  min={0}
+                  max={7}
+                  step={1}
+                  suffix=" jours"
+                />
+              </FormSectionCard>
+              <FormSectionCard title="Parts et membres">
+                <View style={styles.freqBlock}>
+                  <Text style={styles.freqLabel}>Parts maximum par membre</Text>
+                  <FormFreqGrid
+                    name="maxSharesPerMember"
+                    control={control}
+                    columns={3}
+                    options={[
+                      { value: '1', label: '1 part' },
+                      { value: '2', label: '2 parts' },
+                      { value: '3', label: '3 parts' },
+                      { value: '4', label: '4 parts' },
+                      { value: '5', label: '5 parts' },
+                    ]}
+                  />
+                </View>
+                <FormToggleRow
+                  name="requireMinScore"
+                  control={control}
+                  label="Score minimum requis"
+                  sublabel="Filtrer les membres par Score Kelemba"
+                />
+                {requireMinScore ? (
+                  <FormSliderField
+                    name="minScoreRequired"
+                    control={control}
+                    label="Score minimum"
+                    min={0}
+                    max={1000}
+                    step={50}
+                    suffix=" pts"
+                  />
+                ) : null}
+              </FormSectionCard>
+            </>
+          );
+        case 2:
+          return (
+            <>
+              <FormSectionCard title="Mode de rotation">
+                <FormModeGrid
+                  name="rotationMode"
+                  control={control}
+                  options={[
+                    { value: 'ARRIVAL', label: "Ordre d'arrivée", icon: <IconArrival /> },
+                    { value: 'RANDOM', label: 'Tirage au sort', icon: <IconShuffle /> },
+                    { value: 'MANUAL', label: 'Manuel', icon: <IconManual /> },
+                  ]}
+                />
+                <FormInfoBanner message="L'ordre de rotation peut être modifié une seule fois avant le démarrage." />
+              </FormSectionCard>
+              <FormSectionCard title="Accès">
+                <FormToggleRow
+                  name="isPublicLink"
+                  control={control}
+                  label="Lien public (QR Code)"
+                  sublabel="Tout utilisateur vérifié peut demander à rejoindre"
+                />
+              </FormSectionCard>
+            </>
+          );
+        case 3: {
+          const v = rotativeForm.getValues();
+          return (
+            <CreateSummaryCard
+              statusVariant="ready"
+              rows={[
+                { label: 'Nom', value: v.name },
+                { label: 'Type', value: 'Rotative' },
+                {
+                  label: 'Part',
+                  value: `${formatFcfa(Number(v.amountPerShare))} / ${freqLabel(v.frequency)}`,
+                },
+                { label: 'Démarrage', value: formatDate(v.startDate) },
+                {
+                  label: 'Pénalité',
+                  value: `${Number(v.penaltyRate)}% / jour · ${v.gracePeriodDays} j grâce`,
+                },
+                { label: 'Rotation', value: rotationModeLabel(v.rotationMode) },
+                { label: 'Parts max', value: `${v.maxSharesPerMember} part(s) / membre` },
+                {
+                  label: 'Score min',
+                  value: v.requireMinScore && v.minScoreRequired != null ? `${v.minScoreRequired} pts` : 'Aucun',
+                },
+                {
+                  label: 'Accès',
+                  value: v.isPublicLink ? 'Lien public' : 'Invitation uniquement',
+                },
+              ]}
+            />
+          );
+        }
+        default:
+          return <View />;
+      }
+    },
+    [requireMinScore, rotativeForm]
+  );
+
+  const renderEpargneStep = useCallback(
+    (step: number): React.ReactElement => {
+      const control = epargneForm.control;
+      const weeks =
+        epStart && epUnlock ? calculateWeeks(epStart, epUnlock) : 0;
+      const periods = epStart && epUnlock ? estimatePeriods(weeks, epFreq) : 0;
+
+      switch (step) {
+        case 0:
+          return (
+            <>
+              <FormSectionCard title="Informations générales">
+                <FormFieldInput
+                  name="name"
+                  control={control}
+                  label="Nom de la tontine"
+                  placeholder="Ex. Épargne solidaire"
+                  maxLength={100}
+                />
+                <FormFieldInput
+                  name="minimumContribution"
+                  control={control}
+                  label="Contribution minimale"
+                  keyboardType="number-pad"
+                  suffix="FCFA min."
+                  formatValue={formatDigitsFcfa}
+                />
+                <View style={styles.freqBlock}>
+                  <Text style={styles.freqLabel}>Fréquence</Text>
+                  <FormFreqGrid
+                    name="frequency"
+                    control={control}
+                    columns={2}
+                    options={[
+                      { value: 'MONTHLY', label: 'Mensuelle' },
+                      { value: 'WEEKLY', label: 'Hebdomadaire' },
+                      { value: 'BIWEEKLY', label: 'Bimensuelle' },
+                    ]}
+                  />
+                </View>
+              </FormSectionCard>
+              <FormSectionCard title="Calendrier">
+                <Controller
+                  control={control}
+                  name="startDate"
+                  render={({ field: { value }, fieldState: { error } }) => (
+                    <Pressable
+                      onPress={() => setDatePicker('ep_start')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Date de démarrage"
+                    >
+                      <Text style={styles.freqLabel}>Date de démarrage</Text>
+                      <View style={styles.dateFieldWrap}>
+                        <Text style={styles.dateFieldText}>
+                          {value ? formatDateLong(value) : 'Choisir une date'}
+                        </Text>
+                      </View>
+                      {error?.message != null && error.message !== '' ? (
+                        <Text style={styles.dateErr}>{error.message}</Text>
+                      ) : null}
+                    </Pressable>
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="unlockDate"
+                  render={({ field: { value }, fieldState: { error } }) => (
+                    <Pressable
+                      onPress={() => setDatePicker('ep_unlock')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Date de déblocage"
+                    >
+                      <Text style={styles.freqLabel}>Date de déblocage</Text>
+                      <View style={styles.dateFieldWrap}>
+                        <Text style={styles.dateFieldText}>
+                          {value ? formatDateLong(value) : 'Choisir une date'}
+                        </Text>
+                      </View>
+                      {error?.message != null && error.message !== '' ? (
+                        <Text style={styles.dateErr}>{error.message}</Text>
+                      ) : null}
+                    </Pressable>
+                  )}
+                />
+                {epStart && epUnlock ? (
+                  <FormInfoBanner
+                    message={`Durée : ${weeks} semaines · ~${periods} périodes`}
+                  />
+                ) : null}
+              </FormSectionCard>
+            </>
+          );
+        case 1:
+          return (
+            <>
+              <FormSectionCard title="Objectif d'épargne (optionnel)">
+                <FormFieldInput
+                  name="targetAmountPerMember"
+                  control={control}
+                  label="Objectif individuel"
+                  placeholder="Ex. 150 000"
+                  keyboardType="number-pad"
+                  suffix="FCFA"
+                  formatValue={formatDigitsFcfa}
+                />
+                <FormFieldInput
+                  name="targetAmountGlobal"
+                  control={control}
+                  label="Objectif collectif"
+                  placeholder="Laisser vide si libre"
+                  keyboardType="number-pad"
+                  suffix="FCFA"
+                  formatValue={formatDigitsFcfa}
+                />
+              </FormSectionCard>
+              <FormSectionCard title="Fonds bonus">
+                <FormSliderField
+                  name="bonusRatePercent"
+                  control={control}
+                  label="Taux de bonus interne"
+                  min={0}
+                  max={20}
+                  step={1}
+                  suffix="%"
+                />
+                <FormWarnBanner message="Le bonus est une redistribution interne (pénalités + frais). Pas un intérêt financier garanti." />
+              </FormSectionCard>
+            </>
+          );
+        case 2:
+          return (
+            <>
+              <FormSectionCard title="Conditions d'accès">
+                <FormSliderField
+                  name="minScoreRequired"
+                  control={control}
+                  label="Score Kelemba minimum"
+                  min={0}
+                  max={1000}
+                  step={50}
+                  suffix=" pts"
+                />
+                <FormFieldInput
+                  name="maxMembers"
+                  control={control}
+                  label="Nombre maximum de membres"
+                  keyboardType="number-pad"
+                  suffix="membres"
+                />
+              </FormSectionCard>
+              <FormSectionCard title="Sortie anticipée">
+                <FormSliderField
+                  name="earlyExitPenaltyPercent"
+                  control={control}
+                  label="Pénalité de sortie anticipée"
+                  min={0}
+                  max={30}
+                  step={1}
+                  suffix="%"
+                  valueColor={COLORS.dangerText}
+                  warningThreshold={0}
+                />
+                <FormWarnBanner message="Une pénalité de sortie anticipée peut s'appliquer selon les règles du groupe." />
+                <FormToggleRow
+                  name="isPrivate"
+                  control={control}
+                  label="Tontine privée"
+                  sublabel="Accès sur invitation uniquement"
+                />
+              </FormSectionCard>
+            </>
+          );
+        case 3: {
+          const v = epargneForm.getValues();
+          const w = epStart && epUnlock ? calculateWeeks(epStart, epUnlock) : 0;
+          return (
+            <CreateSummaryCard
+              statusVariant="legal_warning"
+              rows={[
+                { label: 'Nom', value: v.name },
+                { label: 'Type', value: 'Épargne' },
+                {
+                  label: 'Contribution',
+                  value: `${formatFcfa(Number(v.minimumContribution))} / ${freqLabel(v.frequency)}`,
+                },
+                { label: 'Démarrage', value: formatDate(v.startDate) },
+                {
+                  label: 'Déblocage',
+                  value: `${formatDate(v.unlockDate)} (${w} sem.)`,
+                },
+                {
+                  label: 'Bonus interne',
+                  value: `${v.bonusRatePercent}% (redistribution)`,
+                },
+                {
+                  label: 'Sortie anticipée',
+                  value: `Pénalité ${v.earlyExitPenaltyPercent}%`,
+                },
+                {
+                  label: 'Accès',
+                  value: `${v.isPrivate ? 'Privée' : 'Public'} · Score ≥ ${v.minScoreRequired}`,
+                },
+              ]}
+            />
+          );
+        }
+        default:
+          return <View />;
+      }
+    },
+    [epStart, epUnlock, epFreq, epargneForm]
+  );
+
+  const renderStepContent = useCallback(() => {
+    if (tontineType === 'ROTATIVE') return renderRotativeStep(currentStep);
+    return renderEpargneStep(currentStep);
+  }, [currentStep, renderEpargneStep, renderRotativeStep, tontineType]);
+
+  const pickerConfig = useMemo(() => {
+    if (datePicker === 'rot_start') {
+      return {
+        value: rotativeForm.watch('startDate'),
+        onChange: (iso: string) => rotativeForm.setValue('startDate', iso),
+        minimumDate: TOMORROW,
+      };
+    }
+    if (datePicker === 'ep_start') {
+      return {
+        value: epargneForm.watch('startDate'),
+        onChange: (iso: string) => epargneForm.setValue('startDate', iso),
+        minimumDate: TOMORROW,
+      };
+    }
+    if (datePicker === 'ep_unlock') {
+      const start = epargneForm.watch('startDate');
+      const min = new Date(`${start}T00:00:00`);
+      min.setDate(min.getDate() + 1);
+      return {
+        value: epargneForm.watch('unlockDate'),
+        onChange: (iso: string) => epargneForm.setValue('unlockDate', iso),
+        minimumDate: min > TOMORROW ? min : TOMORROW,
+      };
+    }
+    return null;
+  }, [datePicker, epargneForm, rotativeForm]);
+
+  const onDateChange = useCallback(
+    (_: unknown, selected?: Date) => {
+      if (!selected || !pickerConfig) return;
+      const y = selected.getFullYear();
+      const m = String(selected.getMonth() + 1).padStart(2, '0');
+      const d = String(selected.getDate()).padStart(2, '0');
+      pickerConfig.onChange(`${y}-${m}-${d}`);
+      setDatePicker(null);
+    },
+    [pickerConfig]
+  );
+
+  const nextA11y = useMemo(() => {
+    const label = currentSteps[currentStep + 1]?.label;
+    return label ? `Passer à l'étape : ${label}` : 'Étape suivante';
+  }, [currentStep, currentSteps]);
 
   if (accountType !== 'ORGANISATEUR') {
     return null;
   }
 
-  const stepMeta =
-    (
-      [
-        { title: 'createTontine.wizardStep1Title', sub: 'createTontine.wizardStep1Subtitle' },
-        { title: 'createTontine.wizardStep2Title', sub: 'createTontine.wizardStep2Subtitle' },
-        { title: 'createTontine.wizardStep3Title', sub: 'createTontine.wizardStep3Subtitle' },
-        { title: 'createTontine.wizardStep4Title', sub: 'createTontine.wizardStep4Subtitle' },
-      ] as const
-    )[step - 1];
-
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <View style={styles.header}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <View style={styles.headerGreen}>
         <View style={styles.headerRow}>
-          <Pressable
-            onPress={handleCancel}
-            style={styles.headerBackButton}
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backBtn}
             hitSlop={12}
             accessibilityRole="button"
-            accessibilityLabel={t('common.cancel')}
+            accessibilityLabel="Retour"
           >
-            <Ionicons name="arrow-back" size={24} color="#1A6B3C" />
-          </Pressable>
+            <BackChevronWhite />
+          </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {t('createTontine.wizardHeaderTitle')}
+            Nouvelle tontine
           </Text>
-          <Pressable
-            style={styles.headerHelpButton}
-            hitSlop={12}
-            onPress={() =>
-              Alert.alert(
-                t('common.help', 'Aide'),
-                t(
-                  'createTontine.helpMessage',
-                  'Remplissez les étapes pour créer votre tontine. Le nombre de tours est calculé automatiquement selon les parts des membres.'
-                )
-              )
-            }
-            accessibilityRole="button"
-            accessibilityLabel={t('common.help', 'Aide')}
-          >
-            <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
-          </Pressable>
         </View>
+        <CreateStepHeader
+          steps={[...currentSteps]}
+          currentStep={currentStep}
+          tontineType={tontineType}
+          onTypeChange={handleTypeChange}
+        />
       </View>
-      <WizardProgressBar
-        currentStep={step}
-        totalSteps={4}
-        accentColor={KELEMBA_GREEN}
-        label={t('createTontine.wizardProgressLabel', { current: step, total: 4 })}
-      />
 
       <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+        style={styles.kav}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {stepMeta ? (
-            <View style={styles.wizardHero}>
-              <Text style={styles.wizardHeroTitle}>{t(stepMeta.title)}</Text>
-              <Text style={styles.wizardHeroSubtitle}>{t(stepMeta.sub)}</Text>
-            </View>
-          ) : null}
-          {submitError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>{submitError}</Text>
-            </View>
-          )}
-
-          {step === 1 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.sectionTitle}>{t('createTontine.nameLabel', 'Nom de la tontine')}</Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.namePlaceholder', 'Ex : Tontine Solidarité Bangui')}</Text>
-              <Controller
-                control={control}
-                name="name"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <TextInput
-                    style={[styles.input, styles.inputPremium, errors.name && styles.inputError]}
-                    placeholder={t('createTontine.namePlaceholder', 'Ex : Tontine Solidarité Bangui')}
-                    placeholderTextColor="#9CA3AF"
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    value={value}
-                    autoCapitalize="words"
-                  />
-                )}
-              />
-              {errors.name && <Text style={styles.fieldError}>{errors.name.message}</Text>}
-
-              <Text style={styles.sectionTitle}>{t('createTontine.amountLabel', 'Montant par part')}</Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.amountHint', 'Minimum 500 FCFA')}</Text>
-              <Controller
-                control={control}
-                name="amountPerShare"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <View style={[styles.amountInputWrapper, errors.amountPerShare && styles.inputError]}>
-                    <TextInput
-                      style={styles.amountInput}
-                      placeholder="500"
-                      placeholderTextColor="#9CA3AF"
-                      keyboardType="numeric"
-                      onBlur={onBlur}
-                      onChangeText={(txt) => onChange(parseFcfa(txt) || 0)}
-                      value={value ? String(value) : ''}
-                    />
-                    <View style={styles.amountSuffix}>
-                      <Text style={styles.amountSuffixText}>FCFA</Text>
-                    </View>
-                  </View>
-                )}
-              />
-              {errors.amountPerShare && <Text style={styles.fieldError}>{errors.amountPerShare.message}</Text>}
-
-              <Text style={styles.sectionTitle}>{t('createTontine.frequencyLabel', 'Fréquence')}</Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.frequencyHint', 'Choisissez la périodicité des cotisations')}</Text>
-              <View style={styles.frequencyRow}>
-                {(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'] as const).map((f) => (
-                  <Controller
-                    key={f}
-                    control={control}
-                    name="frequency"
-                    render={({ field: { onChange, value } }) => (
-                      <Pressable
-                        style={[styles.freqCard, value === f && styles.freqCardActive]}
-                        onPress={() => onChange(f)}
-                      >
-                        <Text style={[styles.freqCardText, value === f && styles.freqCardTextActive]}>
-                          {t(`createTontine.freq${f}`, f)}
-                        </Text>
-                      </Pressable>
-                    )}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.sectionTitle}>{t('createTontine.startDateLabel', 'Date de début')}</Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.startDateHint', 'Date du premier tour')}</Text>
-              <Controller
-                control={control}
-                name="startDate"
-                render={({ field: { value } }) => (
-                  <Pressable
-                    style={[styles.input, styles.inputPremium, styles.dateButton, errors.startDate && styles.inputError]}
-                    onPress={() => setShowDatePicker(true)}
-                  >
-                    <Ionicons name="calendar-outline" size={20} color="#6B7280" />
-                    <Text style={[styles.dateText, value ? {} : styles.datePlaceholder]}>
-                      {value ? formatDateToDisplay(value) : 'JJ/MM/AAAA'}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-                  </Pressable>
-                )}
-              />
-              {showDatePicker && (
-                <DateTimePicker
-                  value={startDate ? new Date(startDate) : TOMORROW}
-                  mode="date"
-                  minimumDate={TOMORROW}
-                  onChange={onDateChange}
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                />
-              )}
-              {errors.startDate && <Text style={styles.fieldError}>{errors.startDate.message}</Text>}
-
-              <View style={styles.livePreviewCard}>
-                <Text style={styles.livePreviewKicker}>{t('createTontine.livePreviewTitle')}</Text>
-                <Text style={styles.summaryCardAmount}>{formatFcfa(watch('amountPerShare'))}</Text>
-                <Text style={styles.livePreviewPer}>{t('createTontine.amountLabel')}</Text>
-                <View style={styles.chipRow}>
-                  <View style={styles.infoChip}>
-                    <Ionicons name="calendar-outline" size={14} color={KELEMBA_GREEN} />
-                    <Text style={styles.infoChipText}>{t(`createTontine.freq${frequency}`)}</Text>
-                  </View>
-                  <View style={styles.infoChip}>
-                    <Ionicons name="git-network-outline" size={14} color={KELEMBA_GREEN} />
-                    <Text style={styles.infoChipText}>{t('createTontine.livePreviewChipRotation')}</Text>
-                  </View>
-                </View>
-                <Text style={styles.summaryCardFootnote}>{t('createTontine.livePreviewChipTours')}</Text>
-                <Text style={styles.summaryCardExample}>
-                  {t('createTontine.contributionExample')} · 2 parts = {formatFcfa((watch('amountPerShare') || 0) * 2)}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {step === 2 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.sectionTitle}>{t('createTontine.penaltyTypeLabel', 'Type de pénalité')}</Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.penaltyHint', 'En cas de retard de paiement')}</Text>
-              <View style={styles.toggleRow}>
-                <Controller
-                  control={control}
-                  name="penaltyType"
-                  render={({ field: { onChange, value } }) => (
-                    <>
-                      <Pressable
-                        style={[styles.toggleCard, value === 'FIXED' && styles.toggleCardActive]}
-                        onPress={() => onChange('FIXED')}
-                      >
-                        <Text style={[styles.toggleCardText, value === 'FIXED' && styles.toggleCardTextActive]}>
-                          {t('createTontine.penaltyFixed', 'Montant fixe (FCFA)')}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.toggleCard, value === 'PERCENTAGE' && styles.toggleCardActive]}
-                        onPress={() => onChange('PERCENTAGE')}
-                      >
-                        <Text style={[styles.toggleCardText, value === 'PERCENTAGE' && styles.toggleCardTextActive]}>
-                          {t('createTontine.penaltyPercentage', 'Pourcentage par jour (%)')}
-                        </Text>
-                      </Pressable>
-                    </>
-                  )}
-                />
-              </View>
-
-              <Text style={styles.sectionTitle}>{t('createTontine.penaltyValueLabel', 'Valeur')}</Text>
-              <Text style={styles.sectionSubtitle}>{penaltyType === 'FIXED' ? 'Montant en FCFA' : 'Pourcentage par jour'}</Text>
-              <Controller
-                control={control}
-                name="penaltyValue"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <View style={[styles.penaltyValueWrapper, errors.penaltyValue && styles.inputError]}>
-                    <TextInput
-                      style={styles.penaltyValueInput}
-                      placeholder="0"
-                      placeholderTextColor="#9CA3AF"
-                      keyboardType="numeric"
-                      onBlur={onBlur}
-                      onChangeText={(txt) => onChange(parseInt(txt, 10) || 0)}
-                      value={value !== undefined ? String(value) : ''}
-                    />
-                    <View style={styles.penaltyValueSuffix}>
-                      <Text style={styles.penaltyValueSuffixText}>
-                        {penaltyType === 'FIXED' ? 'FCFA' : '%'}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              />
-              {errors.penaltyValue && <Text style={styles.fieldError}>{errors.penaltyValue.message}</Text>}
-
-              <Text style={styles.sectionTitle}>
-                {t('createTontine.gracePeriodLabel', 'Délai de grâce avant pénalité')}
-              </Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.gracePeriodHint', 'jour(s)')}</Text>
-              <Controller
-                control={control}
-                name="gracePeriodDays"
-                render={({ field: { onChange, value } }) => (
-                  <View style={styles.stepperRow}>
-                    {[0, 1, 2, 3, 4, 5, 6, 7].map((n) => (
-                      <Pressable
-                        key={n}
-                        style={[styles.stepperChipPremium, value === n && styles.stepperChipPremiumActive]}
-                        onPress={() => onChange(n)}
-                      >
-                        <Text style={[styles.stepperChipText, value === n && styles.stepperChipTextActive]}>
-                          {n}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              />
-
-              <Text style={styles.sectionTitle}>
-                {t('createTontine.suspensionLabel', 'Suspension automatique après')}
-              </Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.suspensionHint', 'jour(s) de retard')}</Text>
-              <Controller
-                control={control}
-                name="suspensionAfterDays"
-                render={({ field: { onChange, value } }) => (
-                  <View style={styles.stepperRow}>
-                    {[1, 3, 5, 7, 10, 14, 21, 30].map((n) => (
-                      <Pressable
-                        key={n}
-                        style={[styles.stepperChipPremium, value === n && styles.stepperChipPremiumActive]}
-                        onPress={() => onChange(n)}
-                      >
-                        <Text style={[styles.stepperChipText, value === n && styles.stepperChipTextActive]}>
-                          {n}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              />
-            </View>
-          )}
-
-          {step === 3 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.sectionTitle}>{t('createTontine.rotationLabel', 'Ordre de rotation')}</Text>
-              <Text style={styles.sectionSubtitle}>{t('createTontine.rotationHint', "Comment déterminer l'ordre des bénéficiaires")}</Text>
-              <Controller
-                control={control}
-                name="rotationType"
-                render={({ field: { onChange, value } }) => (
-                  <View style={styles.rotationCards}>
-                    <Pressable
-                      style={[styles.rotationCardPremium, value === 'RANDOM' && styles.rotationCardPremiumActive]}
-                      onPress={() => onChange('RANDOM')}
-                    >
-                      <View style={[styles.rotationCardIcon, value === 'RANDOM' && styles.rotationCardIconActive]}>
-                        <Ionicons
-                          name="shuffle"
-                          size={28}
-                          color={value === 'RANDOM' ? '#FFFFFF' : KELEMBA_GREEN}
-                        />
-                      </View>
-                      <Text style={[styles.rotationTitle, value === 'RANDOM' && styles.rotationTitleActive]}>
-                        {t('createTontine.rotationRandom', 'Tirage au sort automatique')}
-                      </Text>
-                      <Text style={styles.rotationDesc}>
-                        {t('createTontine.rotationRandomDesc', "L'ordre est tiré au sort lors du démarrage de la tontine")}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.rotationCardPremium, value === 'MANUAL' && styles.rotationCardPremiumActive]}
-                      onPress={() => onChange('MANUAL')}
-                    >
-                      <View style={[styles.rotationCardIcon, value === 'MANUAL' && styles.rotationCardIconActive]}>
-                        <Ionicons
-                          name="list"
-                          size={28}
-                          color={value === 'MANUAL' ? '#FFFFFF' : KELEMBA_GREEN}
-                        />
-                      </View>
-                      <Text style={[styles.rotationTitle, value === 'MANUAL' && styles.rotationTitleActive]}>
-                        {t('createTontine.rotationManual', 'Ordre manuel')}
-                      </Text>
-                      <Text style={styles.rotationDesc}>
-                        {t('createTontine.rotationManualDesc', "Vous définirez l'ordre après avoir invité vos membres")}
-                      </Text>
-                      <View style={styles.badgePremium}>
-                        <Text style={styles.badgePremiumText}>
-                          {t('createTontine.configurableAfter', 'Configurable après création')}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  </View>
-                )}
-              />
-            </View>
-          )}
-
-          {step === 4 && (
-            <View style={styles.stepContent}>
-              <View style={styles.recapHero}>
-                <Text style={styles.recapHeroAmount}>{formatFcfa(watch('amountPerShare'))}</Text>
-                <Text style={styles.recapHeroSub}>
-                  {t(`createTontine.freq${watch('frequency')}`)} · {watch('startDate') ? formatDateToDisplay(watch('startDate')) : '—'}
-                </Text>
-              </View>
-              <Text style={styles.recapTitle}>{t('createTontine.summaryParams', 'Paramètres')}</Text>
-              <View style={styles.summaryCardBlock}>
-                <SummaryRow label={t('createTontine.nameLabel')} value={watch('name')} />
-                <SummaryRow label={t('createTontine.amountLabel')} value={formatFcfa(watch('amountPerShare'))} />
-                <SummaryRow label={t('createTontine.frequencyLabel')} value={t(`createTontine.freq${watch('frequency')}`)} />
-                <SummaryRow label={t('createTontine.startDateLabel')} value={watch('startDate') ? formatDateToDisplay(watch('startDate')) : '—'} isLast />
-              </View>
-              <Text style={styles.recapTitle}>{t('createTontine.summaryRules', 'Règles')}</Text>
-              <View style={styles.summaryCardBlock}>
-                <SummaryRow
-                  label={t('createTontine.penaltyTypeLabel')}
-                  value={watch('penaltyType') === 'FIXED' ? t('createTontine.penaltyFixed') : t('createTontine.penaltyPercentage')}
-                />
-                <SummaryRow label={t('createTontine.penaltyValueLabel')} value={`${watch('penaltyValue')} ${watch('penaltyType') === 'FIXED' ? 'FCFA' : '%'}`} />
-                <SummaryRow label={t('createTontine.gracePeriodLabel')} value={`${watch('gracePeriodDays')} jour(s)`} />
-                <SummaryRow label={t('createTontine.suspensionLabel')} value={`${watch('suspensionAfterDays')} jour(s)`} isLast />
-              </View>
-              <Text style={styles.recapTitle}>{t('createTontine.summaryRotation', 'Rotation')}</Text>
-              <View style={styles.summaryCardBlock}>
-                <SummaryRow
-                  label={t('createTontine.rotationLabel')}
-                  value={watch('rotationType') === 'RANDOM' ? t('createTontine.rotationRandom') : t('createTontine.rotationManual')}
-                  isLast
-                />
-              </View>
-              <Text style={styles.recapHint}>{t('createTontine.recapFinalHint')}</Text>
-            </View>
-          )}
+          {renderStepContent()}
         </ScrollView>
-        <WizardFooter
-          showBack={step > 1}
-          onBack={() => setStep((s) => Math.max(1, s - 1))}
-          onPrimary={() => {
-            if (step < 4) {
-              void handleNext();
-            } else {
-              void handleSubmit(onSubmit)();
-            }
-          }}
-          primaryDisabled={step < 4 ? nextDisabled : false}
-          primaryLabel={step < 4 ? t('common.next') : t('createTontine.createButton')}
-          backLabel={t('common.back')}
-          primaryColor={KELEMBA_GREEN}
-          primaryLoading={step === 4 && isSubmitting}
-        />
       </KeyboardAvoidingView>
+
+      {datePicker != null && pickerConfig != null ? (
+        <DateTimePicker
+          value={new Date(`${pickerConfig.value}T00:00:00`)}
+          mode="date"
+          minimumDate={pickerConfig.minimumDate}
+          onChange={onDateChange}
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+        />
+      ) : null}
+
+      <View style={{ paddingBottom: insets.bottom }}>
+        <FormNavButtons
+          currentStep={currentStep}
+          totalSteps={currentSteps.length}
+          onPrev={handlePrev}
+          onNext={() => {
+            void handleNextOrSubmit();
+          }}
+          isLastStep={currentStep === currentSteps.length - 1}
+          isSubmitting={isSubmitting}
+          nextAccessibilityLabel={nextA11y}
+          createAccessibilityLabel={
+            tontineType === 'ROTATIVE' ? 'Créer la tontine rotative' : "Créer la tontine d'épargne"
+          }
+        />
+      </View>
     </SafeAreaView>
   );
 };
 
-function SummaryRow({
-  label,
-  value,
-  isLast,
-}: {
-  label: string;
-  value: string;
-  isLast?: boolean;
-}) {
-  return (
-    <View style={[styles.summaryRow, isLast && styles.summaryRowLast]}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
-    </View>
-  );
-}
-
-const KELEMBA_GREEN = '#1A6B3C';
-const KELEMBA_GREEN_LIGHT = '#E8F5EE';
-const BORDER_RADIUS = 16;
-const BORDER_RADIUS_SM = 12;
-
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: COLORS.gray100,
   },
-  header: {
-    backgroundColor: '#FFFFFF',
+  headerGreen: {
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    paddingBottom: 16,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    marginBottom: 16,
+    gap: 12,
   },
-  headerBackButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: KELEMBA_GREEN_LIGHT,
+  backBtn: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
     flex: 1,
-    fontSize: 17,
-    fontWeight: '700',
-    color: KELEMBA_GREEN,
-    textAlign: 'center',
-    marginHorizontal: 12,
-  },
-  headerHelpButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wizardHero: {
-    marginBottom: 8,
-  },
-  wizardHeroTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#111827',
-    letterSpacing: -0.4,
-  },
-  wizardHeroSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    lineHeight: 20,
-    marginTop: 6,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 48,
-  },
-  errorBanner: {
-    backgroundColor: '#FEE2E2',
-    padding: 14,
-    borderRadius: BORDER_RADIUS_SM,
-    marginBottom: 20,
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#D0021B',
-    fontWeight: '500',
-  },
-  stepContent: {
-    gap: 20,
-  },
-  sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: KELEMBA_GREEN,
-    marginTop: 8,
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    marginTop: 8,
-  },
-  input: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: BORDER_RADIUS_SM,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#1C1C1E',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  inputPremium: {
-    minHeight: 52,
-    borderRadius: BORDER_RADIUS,
-  },
-  inputError: {
-    borderColor: '#D0021B',
-  },
-  amountInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: BORDER_RADIUS,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  amountInput: {
-    flex: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    minHeight: 52,
-  },
-  amountSuffix: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    minHeight: 52,
-    justifyContent: 'center',
-  },
-  amountSuffixText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: KELEMBA_GREEN,
-  },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  dateText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1C1C1E',
     fontWeight: '500',
+    color: COLORS.white,
   },
-  datePlaceholder: {
-    color: '#9CA3AF',
-    fontWeight: '400',
-  },
-  suffix: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  fieldError: {
-    fontSize: 12,
-    color: '#D0021B',
-    marginTop: 4,
-  },
-  frequencyRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  freqCard: {
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: BORDER_RADIUS,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  freqCardActive: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    borderColor: KELEMBA_GREEN,
-  },
-  freqCardText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  freqCardTextActive: {
-    color: KELEMBA_GREEN,
-  },
-  livePreviewCard: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    borderRadius: BORDER_RADIUS,
-    padding: 18,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(26, 107, 60, 0.18)',
-  },
-  livePreviewKicker: {
+  kav: { flex: 1 },
+  scroll: { flex: 1, backgroundColor: COLORS.gray100 },
+  scrollContent: { padding: 16 },
+  freqBlock: { marginBottom: 14 },
+  freqLabel: {
     fontSize: 11,
-    fontWeight: '700',
-    color: KELEMBA_GREEN,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  livePreviewPer: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
-    marginBottom: 12,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 10,
-  },
-  infoChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(26, 107, 60, 0.2)',
-  },
-  infoChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  summaryCardFootnote: {
-    fontSize: 12,
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  summaryCardAmount: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: KELEMBA_GREEN,
-    marginBottom: 12,
-  },
-  summaryCardHint: {
-    fontSize: 13,
-    color: '#4B5563',
-    lineHeight: 20,
-    marginBottom: 4,
-  },
-  summaryCardExample: {
-    fontSize: 13,
-    color: '#4B5563',
-    lineHeight: 20,
-    marginTop: 8,
     fontWeight: '500',
+    color: COLORS.gray500,
+    marginBottom: 8,
   },
-  hint: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  toggleCard: {
-    flex: 1,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderRadius: BORDER_RADIUS,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    alignItems: 'center',
-  },
-  toggleCardActive: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    borderColor: KELEMBA_GREEN,
-  },
-  toggleCardText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  toggleCardTextActive: {
-    color: KELEMBA_GREEN,
-  },
-  penaltyValueWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: BORDER_RADIUS,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  penaltyValueInput: {
-    flex: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#1C1C1E',
-    minHeight: 52,
-  },
-  penaltyValueSuffix: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    minHeight: 52,
-    justifyContent: 'center',
-  },
-  penaltyValueSuffixText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: KELEMBA_GREEN,
-  },
-  stepperRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  stepperChipPremium: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: BORDER_RADIUS_SM,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-  },
-  stepperChipPremiumActive: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    borderColor: KELEMBA_GREEN,
-  },
-  stepperChip: {
-    paddingHorizontal: 16,
+  datePress: { marginBottom: 14 },
+  dateFieldWrap: {
+    backgroundColor: COLORS.gray100,
+    borderWidth: 0.5,
+    borderColor: COLORS.gray200,
+    borderRadius: 10,
     paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    paddingHorizontal: 12,
   },
-  stepperChipActive: {
-    backgroundColor: '#1A6B3C',
-    borderColor: '#1A6B3C',
-  },
-  stepperChipText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  stepperChipTextActive: {
-    color: KELEMBA_GREEN,
-  },
-  rotationCards: {
-    gap: 16,
-  },
-  rotationCardPremium: {
-    padding: 20,
-    borderRadius: BORDER_RADIUS,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-  },
-  rotationCardPremiumActive: {
-    borderColor: KELEMBA_GREEN,
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-  },
-  rotationCardIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  rotationCardIconActive: {
-    backgroundColor: KELEMBA_GREEN,
-  },
-  rotationTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#1C1C1E',
-    marginBottom: 6,
-  },
-  rotationTitleActive: {
-    color: KELEMBA_GREEN,
-  },
-  rotationDesc: {
-    fontSize: 14,
-    color: '#6B7280',
-    lineHeight: 20,
-  },
-  badgePremium: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(26, 107, 60, 0.3)',
-  },
-  badgePremiumText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: KELEMBA_GREEN,
-  },
-  recapHero: {
-    backgroundColor: KELEMBA_GREEN_LIGHT,
-    borderRadius: BORDER_RADIUS,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(26, 107, 60, 0.15)',
-    alignItems: 'center',
-  },
-  recapHeroAmount: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: KELEMBA_GREEN,
-  },
-  recapHeroSub: {
-    fontSize: 14,
-    color: '#4B5563',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  recapHint: {
+  dateFieldText: {
     fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 20,
-    marginTop: 16,
-    textAlign: 'center',
+    color: COLORS.textPrimary,
   },
-  recapTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: KELEMBA_GREEN,
-    marginTop: 8,
-    marginBottom: 10,
-  },
-  summaryCardBlock: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: BORDER_RADIUS,
-    padding: 18,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-  },
-  summaryBlock: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: BORDER_RADIUS,
-    padding: 16,
-    marginBottom: 16,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F5F5F5',
-  },
-  summaryRowLast: {
-    borderBottomWidth: 0,
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    flex: 1,
-  },
-  summaryValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1C1C1E',
+  dateErr: {
+    fontSize: 10,
+    color: COLORS.dangerText,
+    marginTop: 4,
   },
 });

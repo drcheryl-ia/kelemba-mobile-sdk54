@@ -99,13 +99,43 @@ export interface SendOtpResponse {
   expiresInSeconds: number;
   /** Présent uniquement en mode dev (OTP_DEV_MODE=true côté backend) */
   devOtp?: string;
+  /** Alias / normalisé côté client — identique à devOtp si fourni */
+  otpDev?: string;
+  debugCode?: string;
 }
 
-export const sendOtp = async (phone: string): Promise<SendOtpResponse> => {
+export const sendOtp = async (
+  phone: string,
+  options?: {
+    idempotencyKey?: string;
+    /** REGISTER = inscription (numéro libre). LOGIN ou omis = compte existant. */
+    purpose?: 'LOGIN' | 'REGISTER';
+  }
+): Promise<SendOtpResponse> => {
   try {
     const { url: sendOtpUrl } = ENDPOINTS.AUTH.SEND_OTP;
-    const response = await apiClient.post<SendOtpResponse>(sendOtpUrl, { phone });
-    return response.data;
+    const body: {
+      phone: string;
+      idempotencyKey?: string;
+      purpose?: 'LOGIN' | 'REGISTER';
+    } = { phone };
+    if (options?.idempotencyKey) {
+      body.idempotencyKey = options.idempotencyKey;
+    }
+    if (options?.purpose) {
+      body.purpose = options.purpose;
+    }
+    const response = await apiClient.post<SendOtpResponse>(sendOtpUrl, body);
+    const data = response.data;
+    const otpDevRaw =
+      (typeof data.otpDev === 'string' && data.otpDev) ||
+      (typeof data.devOtp === 'string' && data.devOtp) ||
+      (typeof data.debugCode === 'string' && data.debugCode) ||
+      undefined;
+    return {
+      ...data,
+      otpDev: otpDevRaw,
+    };
   } catch (err: unknown) {
     const apiError = parseApiError(err);
     logger.error('SendOtp failed');
@@ -186,3 +216,21 @@ export const register = async (payload: RegisterPayload): Promise<RegisterRespon
     throw apiError;
   }
 };
+
+/**
+ * Après `register` : si la réponse ne contient pas de JWT (anciens backends),
+ * ouvre une session via `login` pour les appels authentifiés (KYC, adhésion, etc.).
+ */
+export async function ensureSessionAfterRegister(
+  registerResult: RegisterResponse,
+  phone: string,
+  pin: string
+): Promise<RegisterResponse> {
+  if (
+    typeof registerResult.accessToken === 'string' &&
+    registerResult.accessToken.length > 0
+  ) {
+    return registerResult;
+  }
+  return login(phone, pin);
+}

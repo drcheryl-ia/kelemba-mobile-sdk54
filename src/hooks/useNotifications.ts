@@ -184,6 +184,50 @@ export function useNotifications() {
     staleTime: 30_000,
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: (uid: string) =>
+      apiClient.delete(ENDPOINTS.NOTIFICATIONS.ARCHIVE(uid).url),
+    onMutate: async (uid) => {
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      const snapshot = queryClient.getQueryData<{
+        pages: NotificationsPage[];
+        pageParams: unknown[];
+      }>(['notifications']);
+      if (snapshot) {
+        queryClient.setQueryData(['notifications'], {
+          ...snapshot,
+          pages: snapshot.pages.map((page) => ({
+            ...page,
+            items: (page.items ?? []).filter((n) => n == null || n.uid !== uid),
+          })),
+        });
+      }
+      return { snapshot };
+    },
+    onError: (_err, _uid, context) => {
+      if (context?.snapshot) {
+        queryClient.setQueryData(['notifications'], context.snapshot);
+      }
+      logger.error('archiveNotification failed');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
+    },
+  });
+
+  const archiveManyMutation = useMutation({
+    mutationFn: (uids: string[]) =>
+      apiClient.post(ENDPOINTS.NOTIFICATIONS.ARCHIVE_MANY.url, { uids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
+    },
+    onError: () => {
+      logger.error('archiveManyNotifications failed');
+    },
+  });
+
   return {
     allNotifications,
     fetchNextPage,
@@ -194,6 +238,8 @@ export function useNotifications() {
     isFetchingNextPage,
     markAsReadMutation,
     markManyAsReadMutation,
+    archiveMutation,
+    archiveManyMutation,
     unreadData,
   };
 }

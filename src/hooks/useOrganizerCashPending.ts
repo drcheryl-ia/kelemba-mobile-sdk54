@@ -27,6 +27,7 @@ export {
 } from '@/hooks/organizerCashPending.helpers';
 
 const STALE_TIME = 30_000;
+const STALE_COUNT = 15_000;
 const GC_TIME = 24 * 60 * 60 * 1000;
 
 export interface OrganizerCashPendingActionsOptions {
@@ -61,7 +62,7 @@ export function useOrganizerCashPendingCount() {
     queryKey: ['payments', 'cash', 'organizer', 'pending-count', userUid],
     queryFn: () => getOrganizerCashPendingCount(),
     enabled: userUid !== null && hasOrganizerRole,
-    staleTime: STALE_TIME,
+    staleTime: STALE_COUNT,
     gcTime: GC_TIME,
     networkMode: 'offlineFirst',
     refetchOnWindowFocus: false,

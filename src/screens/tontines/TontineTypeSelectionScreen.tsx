@@ -36,7 +36,7 @@ const MUTED = '#6B7280';
 
 const KINDS: readonly {
   id: CreationKind;
-  route: keyof Pick<RootStackParamList, 'CreateTontine' | 'SavingsCreateScreen'>;
+  initialType: 'ROTATIVE' | 'EPARGNE';
   accent: string;
   icon: keyof typeof Ionicons.glyphMap;
   softBg: string;
@@ -44,7 +44,7 @@ const KINDS: readonly {
 }[] = [
   {
     id: 'ROTATIVE',
-    route: 'CreateTontine',
+    initialType: 'ROTATIVE',
     accent: GREEN,
     icon: 'sync',
     softBg: '#F0FDF4',
@@ -52,7 +52,7 @@ const KINDS: readonly {
   },
   {
     id: 'EPARGNE',
-    route: 'SavingsCreateScreen',
+    initialType: 'EPARGNE',
     accent: BLUE,
     icon: 'wallet',
     softBg: '#EFF6FF',
@@ -75,8 +75,10 @@ export function TontineTypeSelectionScreen() {
     if (selected == null) return;
     const cfg = KINDS.find((k) => k.id === selected);
     if (cfg == null) return;
-    logger.info('[TontineTypeSelection] Type sélectionné → ' + cfg.route);
-    navigation.navigate(cfg.route);
+    logger.info('[TontineTypeSelection] Type sélectionné → CreateTontine', {
+      initialType: cfg.initialType,
+    });
+    navigation.navigate('CreateTontine', { initialType: cfg.initialType });
   }, [navigation, selected]);
 
   const footerPadBottom = useMemo(() => Math.max(insets.bottom, spacing.sm), [insets.bottom]);

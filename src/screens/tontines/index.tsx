@@ -8,6 +8,7 @@ export { TontineDetailsScreen } from './TontineDetailsScreen';
 export { InviteMembersScreen } from './InviteMembersScreen';
 export { TontineRotationScreen } from './TontineRotationScreen';
 export { RotationReorderScreen } from './RotationReorderScreen';
+export { TontineActivationScreen } from './activation/TontineActivationScreen';
 export { SwapRequestScreen } from './SwapRequestScreen';
 export { TontineListScreen } from './TontineListScreen';
 export { TontineContractSignatureScreen } from './TontineContractSignatureScreen';

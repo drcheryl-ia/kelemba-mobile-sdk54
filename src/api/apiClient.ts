@@ -4,6 +4,7 @@
  * Erreurs parsées via parseApiError → ApiError typée.
  */
 import axios, { type AxiosError } from 'axios';
+import { buildRequestLogUrl } from '@/api/buildRequestLogUrl';
 import { attachAuthToken, handleAuthError } from './authInterceptor';
 import { parseApiError } from './errors/errorHandler';
 import { API_CONFIG } from '@/config/api.config';
@@ -51,8 +52,9 @@ apiClient.interceptors.request.use(
       config.headers['idempotency-key'] = payloadKey ?? generateIdempotencyKey();
     }
     if (__DEV__) {
-      const fullUrl = `${config.baseURL ?? ''}${config.url ?? ''}`;
-      logger.info(`[REQ] ${(config.method ?? 'GET').toUpperCase()} ${fullUrl}`);
+      logger.info(
+        `[REQ] ${(config.method ?? 'GET').toUpperCase()} ${buildRequestLogUrl(config)}`
+      );
     }
     return config;
   },

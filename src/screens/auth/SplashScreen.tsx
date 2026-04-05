@@ -6,10 +6,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as SplashScreen from 'expo-splash-screen';
 import Constants from 'expo-constants';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { AuthStackParamList } from '@/navigation/types';
+import type { RootStackParamList } from '@/navigation/types';
 import { useNetwork } from '@/hooks/useNetwork';
 
-type Props = NativeStackScreenProps<AuthStackParamList, 'Splash'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
 export const SplashScreenComponent: React.FC<Props> = ({ navigation }) => {
   const { t } = useTranslation();
@@ -19,7 +19,7 @@ export const SplashScreenComponent: React.FC<Props> = ({ navigation }) => {
   useEffect(() => {
     void SplashScreen.hideAsync();
     const timer = setTimeout(() => {
-      navigation.replace('Onboarding');
+      navigation.replace('Login');
     }, 3000);
     return () => clearTimeout(timer);
   }, [navigation]);

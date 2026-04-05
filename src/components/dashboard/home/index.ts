@@ -1,5 +1,4 @@
 export { HomeHeader } from './HomeHeader';
-export { HomeHeroCard } from './HomeHeroCard';
 export { HomeKpiRow } from './HomeKpiRow';
 export { HomeQuickActions } from './HomeQuickActions';
 export type { HomeQuickActionDef, HomeQuickActionId } from './HomeQuickActions';

@@ -254,7 +254,9 @@ export const OtpVerificationScreen: React.FC<Props> = ({ route, navigation }) =>
     setMaxAttemptsExceeded(false);
     setDigits(Array(OTP_LENGTH).fill(''));
     try {
-      const res = await sendOtp(phone);
+      const res = await sendOtp(phone, {
+        purpose: context === 'register' ? 'REGISTER' : 'LOGIN',
+      });
       setSecondsLeft(res.expiresInSeconds);
       if (res.devOtp) {
         setDevOtpCode(res.devOtp);
@@ -273,7 +275,7 @@ export const OtpVerificationScreen: React.FC<Props> = ({ route, navigation }) =>
     } finally {
       setIsResending(false);
     }
-  }, [canResend, phone]);
+  }, [canResend, phone, context]);
 
   const timerColor =
     timerExpired ? '#D0021B' : secondsLeft <= 30 ? '#F5A623' : '#1A6B3C';

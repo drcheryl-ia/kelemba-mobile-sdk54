@@ -110,7 +110,7 @@ export const SavingsListScreen: React.FC = () => {
         </Pressable>
         <Text style={styles.headerTitle}>Mes tontines épargne</Text>
         <Pressable
-          onPress={() => navigation.navigate('SavingsCreateScreen')}
+          onPress={() => navigation.navigate('CreateTontine', { initialType: 'EPARGNE' })}
           hitSlop={12}
           style={styles.addBtn}
           accessibilityRole="button"
@@ -132,7 +132,7 @@ export const SavingsListScreen: React.FC = () => {
             <Text style={styles.emptyHint}>Aucune tontine épargne pour le moment.</Text>
             <Pressable
               style={styles.cta}
-              onPress={() => navigation.navigate('SavingsCreateScreen')}
+              onPress={() => navigation.navigate('CreateTontine', { initialType: 'EPARGNE' })}
             >
               <Text style={styles.ctaText}>Créer ma première tontine épargne</Text>
             </Pressable>

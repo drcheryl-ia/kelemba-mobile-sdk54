@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  StatusBar,
+  Dimensions,
+  Animated,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,14 +24,16 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
 import type { AuthStackParamList } from '@/navigation/types';
 import { navigationRef } from '@/navigation/navigationRef';
-import { colors } from '@/theme/colors';
+import { COLORS } from '@/theme/colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useBiometricAuth } from '@/hooks/useBiometricAuth';
-import { useApiError } from '@/hooks/useApiError';
 import { login, loginWithRefreshToken } from '@/api/authApi';
-import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { ApiError } from '@/api/errors/ApiError';
+import { PinInput } from '@/components/auth/PinInput';
 
 const PIN_LENGTH = 6;
+const { height: SCREEN_H } = Dimensions.get('window');
+const HERO_MIN = Math.round(SCREEN_H * 0.32);
 
 const loginSchema = z.object({
   phone: z
@@ -44,13 +50,6 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
-const BIOMETRIC_ICON_MAP = {
-  faceid: 'scan-outline' as const,
-  fingerprint: 'finger-print' as const,
-  iris: 'eye-outline' as const,
-  none: 'finger-print' as const,
-};
-
 const BIOMETRIC_LABEL_MAP = {
   faceid: 'auth.biometricFaceId',
   fingerprint: 'auth.biometricFingerprint',
@@ -58,10 +57,28 @@ const BIOMETRIC_LABEL_MAP = {
   none: 'auth.biometric',
 } as const;
 
+function LoginHero(): React.ReactElement {
+  const padTop =
+    Platform.OS === 'android'
+      ? (StatusBar.currentHeight ?? 0) + 24
+      : 44;
+
+  return (
+    <View style={[styles.hero, { paddingTop: padTop }]}>
+      <View style={styles.logoRing}>
+        <Text style={styles.logoK}>K</Text>
+      </View>
+      <Text style={styles.heroTitle}>Kelemba</Text>
+      <Text style={styles.heroTagline}>
+        Votre tontine numérique · Tontine na yângâ
+      </Text>
+    </View>
+  );
+}
+
 export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
   const { t, i18n } = useTranslation();
   const { setAuth } = useAuth();
-  const { errorMessage, errorSeverity, handleError, clearError } = useApiError();
   const {
     isAvailable: bioAvailable,
     isEnrolled: bioEnrolled,
@@ -72,20 +89,29 @@ export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
     resetError,
   } = useBiometricAuth();
 
-  const [showPin, setShowPin] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentLang, setCurrentLang] = useState<'fr' | 'sango'>(() =>
     i18n.language === 'sango' ? 'sango' : 'fr'
   );
+  const [phoneFocused, setPhoneFocused] = useState(false);
+  const [pinError, setPinError] = useState(false);
+  const [pinMessage, setPinMessage] = useState<string | null>(null);
+  const [forbiddenMessage, setForbiddenMessage] = useState<string | null>(null);
+
+  const shakeAnim = useRef(new Animated.Value(0)).current;
 
   const {
     control,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: { phone: '', pin: '' },
   });
+
+  const pinValue = watch('pin');
 
   useEffect(() => {
     setCurrentLang(i18n.language === 'sango' ? 'sango' : 'fr');
@@ -99,6 +125,17 @@ export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
     return () => clearTimeout(timer);
   }, [bioError, resetError]);
 
+  const runShake = useCallback(() => {
+    shakeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 8,  duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 8,  duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0,  duration: 40, useNativeDriver: true }),
+    ]).start();
+  }, [shakeAnim]);
+
   const toggleLanguage = useCallback(() => {
     const next = i18n.language === 'fr' ? 'sango' : 'fr';
     i18n.changeLanguage(next);
@@ -106,7 +143,9 @@ export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
   }, [i18n]);
 
   const onSubmit = async (data: LoginFormData) => {
-    clearError();
+    setPinMessage(null);
+    setForbiddenMessage(null);
+    setPinError(false);
     setIsSubmitting(true);
     try {
       const { user, accessToken, refreshToken } = await login(data.phone, data.pin);
@@ -118,7 +157,20 @@ export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
         );
       }
     } catch (err: unknown) {
-      handleError(err);
+      if (ApiError.isApiError(err) && err.httpStatus === 401) {
+        setPinError(true);
+        setPinMessage('Numéro ou PIN incorrect');
+        runShake();
+        setValue('pin', '');
+        return;
+      }
+      if (ApiError.isApiError(err) && err.httpStatus === 403) {
+        setForbiddenMessage(
+          'Compte suspendu ou banni. Contactez support@kelemba.com pour assistance.'
+        );
+        return;
+      }
+      setPinMessage(err instanceof Error ? err.message : 'Une erreur est survenue');
     } finally {
       setIsSubmitting(false);
     }
@@ -127,7 +179,6 @@ export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
   const handleBiometricLogin = async () => {
     const success = await authenticate();
     if (!success) return;
-    clearError();
     setIsSubmitting(true);
     try {
       const { user, accessToken, refreshToken } = await loginWithRefreshToken();
@@ -138,203 +189,201 @@ export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
           CommonActions.reset({ index: 0, routes: [{ name: nextRoute }] })
         );
       }
-    } catch (err: unknown) {
-      handleError(err);
+    } catch {
+      setPinMessage('Échec de la connexion biométrique');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const showBiometric = bioAvailable && bioEnrolled;
-  const biometricIcon = BIOMETRIC_ICON_MAP[biometricType];
   const biometricLabelKey = BIOMETRIC_LABEL_MAP[biometricType];
   const isBiometricDisabled = bioAuthenticating || isSubmitting;
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.logoSection}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="wallet-outline" size={32} color={colors.white} />
-          </View>
-          <Text style={styles.title}>KELEMBA</Text>
-          <Text style={styles.tagline}>{t('app.taglineBilingual')}</Text>
-        </View>
+  const phoneOk = (v: string) => v.replace(/\s/g, '').length >= 8;
+  const canSubmit =
+    phoneOk(watch('phone')) && pinValue.length === PIN_LENGTH && !isSubmitting;
 
-        <View style={styles.form}>
+  return (
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex1}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <View style={styles.heroWrap}>
+          <LoginHero />
+        </View>
+        <ScrollView
+          style={styles.formScroll}
+          contentContainerStyle={styles.formScrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.formTitle}>Connexion</Text>
+          <Text style={styles.formSubtitle}>
+            Entrez votre numéro et votre code PIN
+          </Text>
+
           <Controller
             control={control}
             name="phone"
             render={({ field: { onChange, onBlur, value } }) => (
               <View style={styles.field}>
-                <Text style={styles.label}>{t('auth.phone')}</Text>
-                <View style={styles.inputRow}>
-                  <Ionicons
-                    name="call-outline"
-                    size={20}
-                    color={colors.grayTagline}
-                    style={styles.inputIcon}
-                  />
-                  <Text style={styles.indicatif}>+236</Text>
+                <Text style={styles.label}>Numéro de téléphone</Text>
+                <View
+                  style={[
+                    styles.phoneRow,
+                    phoneFocused && styles.phoneRowFocused,
+                  ]}
+                >
+                  <View style={styles.prefixPill}>
+                    <Text style={styles.prefixText}>+236</Text>
+                  </View>
+                  <View style={styles.phoneSep} />
                   <TextInput
-                    style={styles.input}
-                    placeholder="00 00 00 00"
-                    placeholderTextColor={colors.gray[500]}
+                    style={styles.phoneInput}
+                    placeholder="7X XXX XXX"
+                    placeholderTextColor={COLORS.gray500}
                     value={value}
                     onChangeText={onChange}
-                    onBlur={onBlur}
+                    onBlur={() => {
+                      onBlur();
+                      setPhoneFocused(false);
+                    }}
+                    onFocus={() => setPhoneFocused(true)}
                     keyboardType="phone-pad"
+                    autoComplete="tel"
+                    accessibilityLabel="Numéro de téléphone"
                   />
                 </View>
-                {errors.phone && (
-                  <Text style={styles.errorText}>{errors.phone.message}</Text>
-                )}
+                {errors.phone ? (
+                  <Text style={styles.fieldErr}>{errors.phone.message}</Text>
+                ) : null}
               </View>
             )}
           />
 
-          <Controller
-            control={control}
-            name="pin"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <View style={styles.field}>
-                <Text style={styles.label}>{t('auth.pin')}</Text>
-                <View style={styles.inputRow}>
-                  <Ionicons
-                    name="lock-closed-outline"
-                    size={20}
-                    color={colors.grayTagline}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={[styles.input, styles.inputFlex]}
-                    placeholder={t('auth.pinPlaceholder')}
-                    placeholderTextColor={colors.gray[500]}
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    secureTextEntry={!showPin}
-                    keyboardType="number-pad"
-                    maxLength={PIN_LENGTH}
-                  />
-                  <Pressable
-                    onPress={() => setShowPin(!showPin)}
-                    style={styles.eyeButton}
-                    hitSlop={12}
-                  >
-                    <Ionicons
-                      name={showPin ? 'eye-off-outline' : 'eye-outline'}
-                      size={20}
-                      color={colors.grayTagline}
-                    />
-                  </Pressable>
-                </View>
-                {errors.pin && (
-                  <Text style={styles.errorText}>{errors.pin.message}</Text>
-                )}
-              </View>
-            )}
-          />
-
-          {errorMessage && (
-            <ErrorBanner
-              message={errorMessage}
-              severity={errorSeverity ?? 'error'}
-              onDismiss={clearError}
-            />
-          )}
-
-          <Pressable
-            onPress={() => navigation.navigate('ForgotPin')}
-            style={styles.forgotLink}
+          <Text style={styles.label}>Code PIN (6 chiffres)</Text>
+          <Animated.View
+            style={{ transform: [{ translateX: shakeAnim }] }}
           >
-            <Text style={styles.forgotText}>{t('auth.forgotPassword')}</Text>
-          </Pressable>
+            <Controller
+              control={control}
+              name="pin"
+              render={({ field: { onChange, value } }) => (
+                <PinInput
+                  value={value}
+                  onChange={(v) => {
+                    onChange(v);
+                    setPinError(false);
+                    setPinMessage(null);
+                  }}
+                  masked
+                  error={pinError}
+                  accessibilityLabel="Code PIN à 6 chiffres"
+                  accessibilityHint="Appuyez sur les cases pour saisir"
+                />
+              )}
+            />
+          </Animated.View>
+          {pinMessage != null && pinMessage !== '' ? (
+            <Text style={styles.pinErr}>{pinMessage}</Text>
+          ) : null}
+          {forbiddenMessage != null ? (
+            <Pressable
+              onPress={() => void Linking.openURL('mailto:support@kelemba.com')}
+              accessibilityRole="link"
+            >
+              <Text style={styles.forbidden}>{forbiddenMessage}</Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             onPress={handleSubmit(onSubmit)}
-            style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
-            disabled={isSubmitting}
+            style={({ pressed }) => [
+              styles.btnMain,
+              (!canSubmit || isSubmitting) && styles.btnDisabled,
+              pressed && canSubmit && !isSubmitting && { transform: [{ scale: 0.97 }] },
+            ]}
+            disabled={!canSubmit || isSubmitting}
             accessibilityRole="button"
+            accessibilityState={{ disabled: !canSubmit || isSubmitting }}
             accessibilityLabel={t('auth.loginButton')}
           >
             {isSubmitting ? (
-              <ActivityIndicator size="small" color={colors.white} />
+              <ActivityIndicator size="small" color={COLORS.white} />
             ) : (
-              <Text style={styles.primaryButtonText}>{t('auth.loginButton')}</Text>
+              <Text style={styles.btnMainText}>Se connecter</Text>
             )}
           </Pressable>
 
-          {showBiometric && (
+          {showBiometric ? (
             <>
-              <View style={styles.separator}>
-                <View style={styles.separatorLine} />
-                <Text style={styles.separatorText}>{t('auth.or')}</Text>
-                <View style={styles.separatorLine} />
+              <View style={styles.sepRow}>
+                <View style={styles.sepLine} />
+                <Text style={styles.sepText}>ou</Text>
+                <View style={styles.sepLine} />
               </View>
-
               <Pressable
                 onPress={handleBiometricLogin}
                 style={[
-                  styles.biometricButton,
-                  isBiometricDisabled && styles.biometricButtonDisabled,
+                  styles.btnSec,
+                  isBiometricDisabled && styles.btnSecDisabled,
                 ]}
                 disabled={isBiometricDisabled}
                 accessibilityRole="button"
                 accessibilityLabel={t(biometricLabelKey)}
               >
                 {isBiometricDisabled ? (
-                  <ActivityIndicator size="small" color="#1A6B3C" />
+                  <ActivityIndicator size="small" color={COLORS.primary} />
                 ) : (
                   <>
                     <Ionicons
-                      name={biometricIcon}
-                      size={24}
-                      color="#1A6B3C"
+                      name="lock-closed-outline"
+                      size={20}
+                      color={COLORS.primary}
                     />
-                    <Text style={styles.biometricButtonText}>
-                      {t(biometricLabelKey)}
+                    <Text style={styles.btnSecText}>
+                      {t('auth.biometric', 'Biométrie / Empreinte')}
                     </Text>
                   </>
                 )}
               </Pressable>
-
-              {bioError && (
-                <Text style={styles.bioErrorText}>{bioError}</Text>
-              )}
             </>
-          )}
-        </View>
+          ) : null}
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>{t('auth.noAccount')} </Text>
-          <Pressable
-            onPress={() => navigation.navigate('Register')}
-            hitSlop={8}
-            style={styles.footerLinkPressable}
-          >
-            <Text style={styles.footerLink}>{t('auth.createAccount')}</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
+          {bioError ? <Text style={styles.bioErr}>{bioError}</Text> : null}
+
+          <View style={styles.links}>
+            <Pressable
+              onPress={() => navigation.navigate('AccountTypeChoice')}
+              accessibilityRole="button"
+            >
+              <Text style={styles.linkText}>
+                Pas encore de compte ?{' '}
+                <Text style={styles.linkBold}>Créer un compte</Text>
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => navigation.navigate('ForgotPin')}
+              style={styles.forgotWrap}
+              accessibilityRole="button"
+            >
+              <Text style={styles.linkMuted}>Code PIN oublié ?</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
 
-      <View style={styles.languageBadgeWrapper}>
+      <View style={styles.langWrap}>
         <Pressable
           onPress={toggleLanguage}
-          style={styles.languageBadge}
+          style={styles.langBadge}
           accessibilityRole="button"
           accessibilityLabel="Changer de langue"
         >
-          <Text style={styles.languageBadgeText}>
+          <Text style={styles.langText}>
             {currentLang === 'fr' ? 'FR | Sango' : 'Sango | FR'}
           </Text>
         </Pressable>
@@ -344,204 +393,243 @@ export const LoginScreenComponent: React.FC<Props> = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
+  safe: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: COLORS.white,
   },
-  container: {
+  flex1: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 100,
-    paddingTop: 24,
+  heroWrap: {
+    minHeight: HERO_MIN,
+    backgroundColor: COLORS.primary,
   },
-  logoSection: {
+  hero: {
+    paddingHorizontal: 32,
     alignItems: 'center',
-    marginTop: 0,
-    width: '100%',
+    marginTop: 64,
+    paddingBottom: 20,
   },
-  logoCircle: {
+  logoRing: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.primary,
+    backgroundColor: 'rgba(255,255,255,.2)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,.35)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 12,
   },
-  title: {
-    color: colors.primary,
-    fontWeight: '900',
+  logoK: {
     fontSize: 28,
-    letterSpacing: 3,
-    marginTop: 16,
+    fontWeight: '500',
+    color: COLORS.white,
   },
-  tagline: {
-    color: colors.grayTagline,
-    fontSize: 14,
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '500',
+    color: COLORS.white,
+    marginBottom: 4,
+  },
+  heroTagline: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,.75)',
     textAlign: 'center',
-    marginTop: 8,
   },
-  form: {
-    marginTop: 32,
-    width: '100%',
+  formScroll: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+  formScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 100,
+  },
+  formTitle: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: COLORS.textPrimary,
+    marginBottom: 4,
+  },
+  formSubtitle: {
+    fontSize: 13,
+    color: COLORS.gray500,
+    marginBottom: 20,
   },
   field: {
     marginBottom: 16,
   },
   label: {
-    color: colors.grayTagline,
-    fontSize: 14,
-    marginBottom: 8,
+    fontSize: 11,
+    fontWeight: '500',
+    color: COLORS.gray500,
+    marginBottom: 6,
   },
-  inputRow: {
+  phoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.inputBackground,
     borderRadius: 12,
-    minHeight: 48,
+    borderWidth: 0.5,
+    borderColor: COLORS.gray200,
+    backgroundColor: COLORS.gray100,
+    paddingVertical: 11,
     paddingHorizontal: 12,
   },
-  inputIcon: {
-    marginRight: 8,
+  phoneRowFocused: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.white,
   },
-  indicatif: {
-    color: colors.grayTagline,
-    fontSize: 14,
-    marginRight: 4,
+  prefixPill: {
+    backgroundColor: '#1A6B3C15',
+    borderRadius: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
   },
-  input: {
+  prefixText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: COLORS.primaryDark,
+  },
+  phoneSep: {
+    width: 1,
+    height: 16,
+    backgroundColor: COLORS.gray200,
+    marginHorizontal: 8,
+  },
+  phoneInput: {
     flex: 1,
-    fontSize: 16,
-    color: colors.black,
-    paddingVertical: 12,
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    padding: 0,
   },
-  inputFlex: {
-    paddingLeft: 0,
-  },
-  eyeButton: {
-    padding: 8,
-    minHeight: 48,
-    justifyContent: 'center',
-  },
-  errorText: {
-    color: colors.danger,
+  fieldErr: {
     fontSize: 12,
+    color: COLORS.dangerText,
     marginTop: 4,
   },
-  forgotLink: {
-    alignSelf: 'flex-end',
-    marginBottom: 24,
-    minHeight: 48,
-    justifyContent: 'center',
+  pinErr: {
+    fontSize: 12,
+    color: COLORS.dangerText,
+    textAlign: 'center',
+    marginTop: -8,
+    marginBottom: 8,
   },
-  forgotText: {
-    color: colors.primary,
-    fontWeight: '600',
-    fontSize: 14,
+  forbidden: {
+    fontSize: 12,
+    color: COLORS.dangerText,
+    textAlign: 'center',
+    marginBottom: 8,
+    textDecorationLine: 'underline',
   },
-  primaryButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 14,
-    minHeight: 56,
+  btnMain: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 48,
+    marginTop: 8,
+    shadowColor: '#1A6B3C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  primaryButtonDisabled: {
+  btnDisabled: {
+    backgroundColor: '#A8C5B0',
     opacity: 0.7,
+    shadowColor: 'transparent',
+    elevation: 0,
   },
-  primaryButtonText: {
-    color: colors.white,
-    fontWeight: '700',
+  btnMainText: {
+    color: COLORS.white,
     fontSize: 16,
+    fontWeight: '600',
   },
-  separator: {
+  sepRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 24,
+    marginTop: 20,
+    marginBottom: 16,
   },
-  separatorLine: {
+  sepLine: {
     flex: 1,
-    height: 1,
-    backgroundColor: colors.gray[300],
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.gray200,
   },
-  separatorText: {
-    color: colors.grayTagline,
+  sepText: {
+    marginHorizontal: 12,
     fontSize: 13,
-    marginHorizontal: 16,
+    color: COLORS.gray500,
   },
-  biometricButton: {
+  btnSec: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.white,
     borderWidth: 1.5,
-    borderColor: '#1A6B3C',
-    borderRadius: 14,
-    height: 56,
+    borderColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
     minHeight: 48,
-    backgroundColor: '#FFFFFF',
-    gap: 10,
   },
-  biometricButtonDisabled: {
+  btnSecDisabled: {
     opacity: 0.6,
   },
-  biometricButtonText: {
-    color: '#1A6B3C',
-    fontSize: 16,
-    fontWeight: '700',
+  btnSecText: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: '600',
   },
-  bioErrorText: {
-    color: '#D0021B',
-    fontSize: 13,
+  bioErr: {
+    color: COLORS.dangerText,
+    fontSize: 12,
     textAlign: 'center',
     marginTop: 8,
   },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+  links: {
+    marginTop: 24,
+    marginBottom: 24,
+    gap: 12,
     alignItems: 'center',
-    marginTop: 32,
-    flexWrap: 'wrap',
-    width: '100%',
   },
-  footerText: {
-    color: colors.grayTagline,
+  linkText: {
     fontSize: 14,
+    color: COLORS.gray500,
+    textAlign: 'center',
   },
-  footerLink: {
-    color: colors.primary,
-    fontSize: 14,
+  linkBold: {
+    color: COLORS.primary,
     fontWeight: '600',
-    textDecorationLine: 'underline',
   },
-  footerLinkPressable: {
-    minHeight: 48,
+  linkMuted: {
+    fontSize: 14,
+    color: COLORS.gray500,
+    textAlign: 'center',
+  },
+  forgotWrap: {
+    minHeight: 44,
     justifyContent: 'center',
   },
-  languageBadgeWrapper: {
+  langWrap: {
     position: 'absolute',
     bottom: 32,
     left: 0,
     right: 0,
     alignItems: 'center',
   },
-  languageBadge: {
+  langBadge: {
     borderWidth: 1.5,
-    borderColor: '#1A6B3C',
+    borderColor: COLORS.primary,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 6,
-    backgroundColor: '#FFFFFF',
-    minHeight: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: COLORS.white,
   },
-  languageBadgeText: {
-    color: '#1A6B3C',
+  langText: {
+    color: COLORS.primary,
     fontSize: 13,
     fontWeight: '600',
   },

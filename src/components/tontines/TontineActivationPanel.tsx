@@ -214,12 +214,16 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
     [tontineUid, showToast, t, queryClient]
   );
 
-  // ── Modifier l'ordre de rotation ──────────────────────────────────────────
+  // ── Assistant d'activation (parts + ordre + cycles) ─────────────────────────
+  const handleOpenActivationWizard = useCallback(() => {
+    navigation.navigate('TontineActivationScreen', { tontineUid });
+  }, [navigation, tontineUid]);
+
   const handleEditRotation = useCallback(() => {
-    (navigation as { navigate: (name: string, params: object) => void }).navigate(
-      'RotationReorderScreen',
-      { tontineUid }
-    );
+    navigation.navigate('TontineActivationScreen', {
+      tontineUid,
+      initialStep: 'order',
+    });
   }, [navigation, tontineUid]);
 
   // ── Activation ────────────────────────────────────────────────────────────
@@ -537,6 +541,25 @@ export const TontineActivationPanel: React.FC<TontineActivationPanelProps> = ({
         </View>
       </View>
 
+      <Pressable
+        style={[
+          styles.activationWizardBtn,
+          isActivating && styles.editRotationBtnDisabled,
+        ]}
+        onPress={handleOpenActivationWizard}
+        disabled={isActivating}
+        accessibilityRole="button"
+      >
+        <Ionicons name="rocket-outline" size={20} color="#1A6B3C" />
+        <Text style={styles.activationWizardText}>
+          {t(
+            'tontineActivation.openWizard',
+            "Assistant d'activation (parts & ordre)"
+          )}
+        </Text>
+        <Ionicons name="chevron-forward" size={20} color="#1A6B3C" />
+      </Pressable>
+
       {/* ── Bannière mode rotation ── */}
       <View style={styles.infoBanner}>
         <Ionicons
@@ -778,6 +801,24 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   editRotationText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1A6B3C',
+  },
+  activationWizardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#1A6B3C',
+  },
+  activationWizardText: {
     flex: 1,
     fontSize: 14,
     fontWeight: '600',

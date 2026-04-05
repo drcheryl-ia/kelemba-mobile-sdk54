@@ -88,13 +88,16 @@ export const CyclePayoutScreen: React.FC<Props> = ({ navigation, route }) => {
     cycleNumber,
     beneficiaryName,
     netAmount,
+    initialPaymentMethod,
   } = route.params;
 
   const queryClient = useQueryClient();
   const { isConnected } = useNetwork();
   const { isAvailable: bioAvailable, authenticate: bioAuth } = useBiometricAuth();
 
-  const [method, setMethod] = useState<CyclePayoutPaymentMethod>('ORANGE_MONEY');
+  const [method, setMethod] = useState<CyclePayoutPaymentMethod>(
+    initialPaymentMethod ?? 'ORANGE_MONEY'
+  );
   const [receiverPhone, setReceiverPhone] = useState('');
   const [receiverName, setReceiverName] = useState(beneficiaryName);
   const [cashConfirmed, setCashConfirmed] = useState(false);

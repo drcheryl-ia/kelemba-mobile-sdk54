@@ -17,12 +17,12 @@ import {
   TontineRotationScreen,
   TontineTypeSelectionScreen,
   RotationReorderScreen,
+  TontineActivationScreen,
   SwapRequestScreen,
   TontineContractSignatureScreen,
 } from '@/screens/tontines';
 import { PaymentScreen, PaymentStatusScreen } from '@/screens/payments';
 import {
-  SavingsCreateScreen,
   SavingsListScreen,
   SavingsDetailScreen,
   SavingsDashboardScreen,
@@ -90,6 +90,11 @@ export const RootNavigator: React.FC = () => (
       options={{ headerShown: false }}
     />
     <Stack.Screen
+      name="TontineActivationScreen"
+      component={TontineActivationScreen}
+      options={{ headerShown: false }}
+    />
+    <Stack.Screen
       name="SwapRequestScreen"
       component={SwapRequestScreen}
       options={{ headerShown: false }}
@@ -98,11 +103,6 @@ export const RootNavigator: React.FC = () => (
       name="TontineContractSignature"
       component={TontineContractSignatureScreen}
       options={{ headerShown: true, title: 'Contrat de tontine', headerBackTitle: '' }}
-    />
-    <Stack.Screen
-      name="SavingsCreateScreen"
-      component={SavingsCreateScreen}
-      options={{ headerShown: true, title: 'Nouvelle Épargne', headerBackTitle: '' }}
     />
     <Stack.Screen
       name="SavingsListScreen"

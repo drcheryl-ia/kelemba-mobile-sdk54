@@ -23,10 +23,10 @@ import type {
   MainTabParamList,
 } from '@/navigation/types';
 import type { UserProfileDto } from '@/api/types/api.types';
-import { SplashScreenComponent } from '@/screens/auth/SplashScreen';
-import { OnboardingScreen } from '@/screens/auth/OnboardingScreen';
 import { LoginScreenComponent } from '@/screens/auth/LoginScreen';
 import { RegisterScreenComponent } from '@/screens/auth/RegisterScreen';
+import { AccountTypeChoiceScreen } from '@/screens/auth/AccountTypeChoiceScreen';
+import { JoinTontineScreen } from '@/screens/auth/JoinTontineScreen';
 import { OtpVerificationScreen, PinSetupScreen, AuthPlaceholderScreen } from '@/screens/auth';
 import { KycPendingScreen } from '@/screens/kyc/KycPendingScreen';
 import { KycUploadScreen } from '@/screens/kyc/KycUploadScreen';
@@ -41,7 +41,8 @@ import { useNotificationHandler } from '@/hooks/useNotificationHandler';
 import { TontineListScreen } from '@/screens/tontines';
 import { ContributionHistoryScreen } from '@/screens/payments';
 import { NotificationsScreen } from '@/screens/notifications';
-import { SavingsTrackingScreen } from '@/screens/savings/SavingsTrackingScreen';
+import Svg, { Path, Polyline, Line } from 'react-native-svg';
+import ReportScreen from '@/screens/report/ReportScreen';
 import { ProfileStack } from '@/navigation/ProfileStack';
 import {
   CreateTontineScreen,
@@ -50,6 +51,7 @@ import {
   TontineRotationScreen,
   TontineTypeSelectionScreen,
   RotationReorderScreen,
+  TontineActivationScreen,
   SwapRequestScreen,
   TontineContractSignatureScreen,
 } from '@/screens/tontines';
@@ -59,6 +61,7 @@ import {
   PaymentReminderScreen,
   CashProofScreen,
   CashValidationScreen,
+  PaymentHistoryScreen,
 } from '@/screens/payments';
 import { CyclePayoutScreen } from '@/screens/payouts/CyclePayoutScreen';
 import {
@@ -66,7 +69,6 @@ import {
   handleInitialNotification,
 } from '@/services/fcmNotificationHandler';
 import {
-  SavingsCreateScreen,
   SavingsListScreen,
   SavingsDetailScreen,
   SavingsDashboardScreen,
@@ -80,6 +82,8 @@ import { colors } from '@/theme/colors';
 import { spacing } from '@/theme/spacing';
 import { getNavigationTheme, lightTheme, darkTheme } from '@/theme/appTheme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getStateFromPath as getStateFromPathDefault } from '@react-navigation/native';
+import { store } from '@/store/store';
 
 type AppRoute = 'AUTH' | 'KYC' | 'MAIN';
 
@@ -157,6 +161,12 @@ const linking = {
   prefixes: ['kelemba://', 'https://kelemba.app'],
   config: {
     screens: {
+      /** kelemba://join/:token · https://kelemba.app/join/:token — routage métier dans getStateFromPath */
+      AuthStack: {
+        screens: {
+          JoinTontine: 'join/:token',
+        },
+      },
       MainTabs: {
         screens: {
           Tontines: 'tontines',
@@ -165,6 +175,42 @@ const linking = {
       TontineDetails: 'tontines/:tontineUid',
       KycUpload: 'kyc',
     },
+  },
+  getStateFromPath(
+    path: string,
+    options: Parameters<typeof getStateFromPathDefault>[1]
+  ) {
+    const normalized = path.replace(/^\//, '');
+    const joinMatch = normalized.match(/^join\/([^/?]+)/);
+    if (!joinMatch) {
+      return getStateFromPathDefault(path, options);
+    }
+    const token = decodeURIComponent(joinMatch[1]);
+    const { auth } = store.getState();
+    if (auth.isAuthenticated && token) {
+      return {
+        routes: [
+          {
+            name: 'TontineContractSignature' as const,
+            params: {
+              mode: 'JOIN_REQUEST' as const,
+              tontineUid: token,
+            },
+          },
+        ],
+      };
+    }
+    return {
+      routes: [
+        {
+          name: 'AuthStack' as const,
+          state: {
+            routes: [{ name: 'JoinTontine' as const, params: { token } }],
+            index: 0,
+          },
+        },
+      ],
+    };
   },
 };
 
@@ -176,23 +222,26 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 function AuthStackNavigator() {
   return (
     <AuthStack.Navigator
-      initialRouteName="Splash"
+      initialRouteName="Login"
       screenOptions={{ headerShown: false }}
     >
-      <AuthStack.Screen name="Splash" component={SplashScreenComponent} />
-      <AuthStack.Screen name="Onboarding" component={OnboardingScreen} />
       <AuthStack.Screen name="Login" component={LoginScreenComponent} />
+      <AuthStack.Screen
+        name="AccountTypeChoice"
+        component={AccountTypeChoiceScreen}
+      />
+      <AuthStack.Screen name="JoinTontine" component={JoinTontineScreen} />
       <AuthStack.Screen name="Register" component={RegisterScreenComponent} />
       <AuthStack.Screen name="ForgotPin" component={AuthPlaceholderScreen} />
       <AuthStack.Screen
         name="OtpVerification"
         component={OtpVerificationScreen}
-        options={{ headerShown: true, title: 'Vérification', headerBackTitle: '' }}
+        options={{ headerShown: false }}
       />
       <AuthStack.Screen
         name="PinSetup"
         component={PinSetupScreen}
-        options={{ headerShown: true, title: 'Configuration du PIN', headerBackTitle: '' }}
+        options={{ headerShown: false }}
       />
     </AuthStack.Navigator>
   );
@@ -252,8 +301,8 @@ function MainTabsNavigator() {
                 ? 'Tontines'
                 : route.name === 'Payments'
                   ? 'Paiements'
-                  : route.name === 'SavingsTracking'
-                    ? 'Suivi épargnes'
+                  : route.name === 'Report'
+                    ? 'Rapport'
                     : route.name === 'Profile'
                       ? 'Compte'
                       : route.name,
@@ -292,11 +341,58 @@ function MainTabsNavigator() {
           marginBottom: 2,
         },
         tabBarIcon: ({ focused, color }) => {
+          if (route.name === 'Report') {
+            const stroke = focused ? '#1A6B3C' : '#888780';
+            return (
+              <View
+                style={{
+                  width: TAB_ICON_SIZE,
+                  height: TAB_ICON_SIZE,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                  <Path
+                    d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                    stroke={stroke}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <Polyline
+                    points="14 2 14 8 20 8"
+                    stroke={stroke}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <Line
+                    x1="16"
+                    y1="13"
+                    x2="8"
+                    y2="13"
+                    stroke={stroke}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                  />
+                  <Line
+                    x1="16"
+                    y1="17"
+                    x2="8"
+                    y2="17"
+                    stroke={stroke}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                  />
+                </Svg>
+              </View>
+            );
+          }
           const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
             Dashboard: focused ? 'home' : 'home-outline',
             Tontines: focused ? 'people' : 'people-outline',
             Payments: focused ? 'wallet' : 'wallet-outline',
-            SavingsTracking: focused ? 'analytics' : 'analytics-outline',
             Profile: focused ? 'person-circle' : 'person-circle-outline',
           };
           const iconColor = color ?? (focused ? t.iconActive : t.iconInactive);
@@ -316,7 +412,7 @@ function MainTabsNavigator() {
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Tontines" component={TontineListScreen} />
       <Tab.Screen name="Payments" component={ContributionHistoryScreen} />
-      <Tab.Screen name="SavingsTracking" component={SavingsTrackingScreen} />
+      <Tab.Screen name="Report" component={ReportScreen} />
       <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
@@ -411,6 +507,11 @@ export const AppNavigator: React.FC = () => {
         />
         <RootStack.Screen name="PaymentStatusScreen" component={PaymentStatusScreen} />
         <RootStack.Screen
+          name="PaymentHistory"
+          component={PaymentHistoryScreen}
+          options={{ headerShown: false, presentation: 'card' }}
+        />
+        <RootStack.Screen
           name="CashProofScreen"
           component={CashProofScreen}
           options={{ headerShown: false, presentation: 'modal' }}
@@ -423,13 +524,17 @@ export const AppNavigator: React.FC = () => {
         <RootStack.Screen name="InviteMembers" component={InviteMembersScreen} />
         <RootStack.Screen name="TontineRotation" component={TontineRotationScreen} />
         <RootStack.Screen name="RotationReorderScreen" component={RotationReorderScreen} />
+        <RootStack.Screen
+          name="TontineActivationScreen"
+          component={TontineActivationScreen}
+          options={{ headerShown: false }}
+        />
         <RootStack.Screen name="SwapRequestScreen" component={SwapRequestScreen} />
         <RootStack.Screen
           name="TontineContractSignature"
           component={TontineContractSignatureScreen}
           options={{ headerShown: true, title: 'Contrat de tontine', headerBackTitle: '' }}
         />
-        <RootStack.Screen name="SavingsCreateScreen" component={SavingsCreateScreen} />
         <RootStack.Screen name="SavingsListScreen" component={SavingsListScreen} />
         <RootStack.Screen name="SavingsDetailScreen" component={SavingsDetailScreen} />
         <RootStack.Screen name="SavingsDashboardScreen" component={SavingsDashboardScreen} />

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { buildRequestLogUrl } from '@/api/buildRequestLogUrl';
 import { ApiError } from './ApiError';
 import { ApiErrorCode } from './errorCodes';
 import { inferCodeFromHttpMessage } from './inferHttpErrorCode';
@@ -46,7 +47,7 @@ export function parseApiError(err: unknown): ApiError {
 
   if (axios.isAxiosError(err)) {
     if (!err.response) {
-      const fullUrl = err.config?.url ?? 'URL inconnue';
+      const fullUrl = buildRequestLogUrl(err.config);
       const method = (err.config?.method ?? 'UNKNOWN').toUpperCase();
       const isTimeout = err.code === 'ECONNABORTED';
       logger.error(`[NETWORK] ${method} ${fullUrl} — Aucune réponse`, {
@@ -65,6 +66,9 @@ export function parseApiError(err: unknown): ApiError {
     const status = err.response.status;
     const data = err.response.data as Record<string, unknown> | undefined;
     const rawCode = data?.code as string | undefined;
+    /** Alignement codes backend Nest (register / send-otp REGISTER). */
+    const normalizedCode =
+      rawCode === 'PHONE_ALREADY_EXISTS' ? 'PHONE_ALREADY_USED' : rawCode;
 
     const messageRaw = data?.message;
     const message =
@@ -77,24 +81,23 @@ export function parseApiError(err: unknown): ApiError {
             : (err.message ?? 'Unknown error');
 
     let code: ApiErrorCode =
-      rawCode && Object.values(ApiErrorCode).includes(rawCode as ApiErrorCode)
-        ? (rawCode as ApiErrorCode)
+      normalizedCode &&
+      Object.values(ApiErrorCode).includes(normalizedCode as ApiErrorCode)
+        ? (normalizedCode as ApiErrorCode)
         : mapHttpStatusToCode(status);
 
     const inferred = inferCodeFromHttpMessage(message, status);
     if (
       inferred &&
-      (!rawCode ||
-        !Object.values(ApiErrorCode).includes(rawCode as ApiErrorCode) ||
+      (!normalizedCode ||
+        !Object.values(ApiErrorCode).includes(normalizedCode as ApiErrorCode) ||
         code === ApiErrorCode.UNKNOWN ||
         code === ApiErrorCode.VALIDATION_ERROR)
     ) {
       code = inferred;
     }
 
-    const fullUrl = err.config?.baseURL
-      ? `${err.config.baseURL}${err.config.url ?? ''}`
-      : (err.config?.url ?? 'URL inconnue');
+    const fullUrl = buildRequestLogUrl(err.config);
     const method = (err.config?.method ?? 'UNKNOWN').toUpperCase();
     const safeBody = getSafeBody(err.config?.data);
 

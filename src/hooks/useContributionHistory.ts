@@ -13,7 +13,7 @@ import type { PaymentHistoryItem } from '@/types/tontine';
 import { paymentHistoryPrimaryTotal } from '@/utils/paymentAmountDisplay';
 
 const PAGE_SIZE = 20;
-const STALE_TIME = 60_000;
+const STALE_TIME = 120_000;
 const GC_TIME = 24 * 60 * 60 * 1000;
 
 export type StatusFilter =
@@ -25,6 +25,9 @@ export type StatusFilter =
   | 'REFUNDED';
 
 export type PeriodPreset = 'all' | '7d' | '30d' | 'custom';
+
+/** Filtre période (écran Paiements — modal) — prioritaire sur `periodPreset` si défini. */
+export type FilterPeriod = 'current_month' | 'last_3_months' | 'all';
 
 export type MethodFilterOption = 'all' | 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH';
 
@@ -40,6 +43,28 @@ export interface ContributionHistoryOptions {
   /** Utilisé pour le tri par date (API) et pour le sens du tri par montant (client). */
   sortOrder?: 'asc' | 'desc';
   sortField?: HistorySortField;
+  /** Filtre calendaire (écran Paiements) — remplace le preset 7d/30d/all quand défini. */
+  filterPeriod?: FilterPeriod;
+}
+
+function filterPeriodToRange(
+  fp: FilterPeriod | undefined
+): { from?: string; to?: string } {
+  if (fp == null || fp === 'all') return {};
+  const to = new Date();
+  const toDay = to.toISOString().split('T')[0] ?? '';
+  if (fp === 'current_month') {
+    const from = new Date(to.getFullYear(), to.getMonth(), 1);
+    const fromDay = from.toISOString().split('T')[0] ?? '';
+    return { from: fromDay, to: toDay };
+  }
+  if (fp === 'last_3_months') {
+    const from = new Date();
+    from.setDate(from.getDate() - 90);
+    const fromDay = from.toISOString().split('T')[0] ?? '';
+    return { from: fromDay, to: toDay };
+  }
+  return {};
 }
 
 function periodToRange(
@@ -64,6 +89,7 @@ export interface UseContributionHistoryReturn {
   items: PaymentHistoryItem[];
   total: number;
   hasNextPage: boolean;
+  isLoading: boolean;
   isFetching: boolean;
   isFetchingNextPage: boolean;
   isError: boolean;
@@ -85,6 +111,7 @@ export function useContributionHistory(
     data,
     fetchNextPage,
     hasNextPage,
+    isLoading,
     isFetching,
     isFetchingNextPage,
     isError,
@@ -96,6 +123,7 @@ export function useContributionHistory(
       'history',
       userUid,
       statusFilter,
+      options?.filterPeriod ?? '',
       options?.periodPreset ?? 'all',
       options?.customFrom ?? '',
       options?.customTo ?? '',
@@ -104,11 +132,14 @@ export function useContributionHistory(
       sortField,
     ],
     queryFn: async ({ pageParam }) => {
-      const range = periodToRange(
-        options?.periodPreset,
-        options?.customFrom,
-        options?.customTo
-      );
+      const range =
+        options?.filterPeriod != null
+          ? filterPeriodToRange(options.filterPeriod)
+          : periodToRange(
+              options?.periodPreset,
+              options?.customFrom,
+              options?.customTo
+            );
       const method =
         options?.methodFilter != null && options.methodFilter !== 'all'
           ? options.methodFilter
@@ -157,6 +188,7 @@ export function useContributionHistory(
     items,
     total,
     hasNextPage: hasNextPage ?? false,
+    isLoading,
     isFetching,
     isFetchingNextPage,
     isError,

@@ -1,140 +1,175 @@
-import React from 'react';
-import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import React, { useMemo } from 'react';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-const NUM_COLUMNS = 4;
-const PADDING_H = 16;
-const GAP = 10;
-
-export interface QuickActionItem {
-  id: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-  iconBg?: string;
-}
+import { useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { MainTabParamList } from '@/navigation/types';
+import { navigationRef } from '@/navigation/navigationRef';
+import { useNextPayment } from '@/hooks/useNextPayment';
+import { KelembaSectionHeader } from '@/components/common/KelembaSectionHeader';
+import { COLORS } from '@/theme/colors';
+import { RADIUS } from '@/theme/spacing';
 
 export interface QuickActionsProps {
-  onCotiser: () => void;
-  onNouvelleTontine: () => void;
-  onHistorique: () => void;
-  onAide: () => void;
-  showNouvelleTontine?: boolean;
-  showRejoindreTontine?: boolean;
-  onRejoindreTontine?: () => void;
+  /** Si défini, utilisé à la place du hook interne (tests). */
+  hasNextPayment?: boolean;
 }
 
+type ActionDef = {
+  id: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconBg: string;
+  iconColor: string;
+  onPress: () => void;
+};
+
 export const QuickActions: React.FC<QuickActionsProps> = ({
-  onCotiser,
-  onNouvelleTontine,
-  onHistorique,
-  onAide,
-  showNouvelleTontine = true,
-  showRejoindreTontine = false,
-  onRejoindreTontine,
+  hasNextPayment: hasNextPaymentProp,
 }) => {
-  const { width } = useWindowDimensions();
-  const totalGaps = NUM_COLUMNS - 1;
-  const buttonSize = Math.floor(
-    (width - PADDING_H * 2 - GAP * totalGaps) / NUM_COLUMNS
+  const navigation =
+    useNavigation<BottomTabNavigationProp<MainTabParamList, 'Dashboard'>>();
+  const { nextPayment } = useNextPayment();
+  const hasNext = hasNextPaymentProp ?? nextPayment != null;
+  const { width: screenW } = useWindowDimensions();
+  const contentW = screenW - 32;
+  const gap = 10;
+  const columns = screenW >= 380 ? 4 : 2;
+  const cellW = (contentW - gap * (columns - 1)) / columns;
+
+  const actions = useMemo<ActionDef[]>(
+    () => [
+      {
+        id: 'new',
+        label: 'Nouvelle tontine',
+        icon: 'add',
+        iconBg: '#1A6B3C15',
+        iconColor: COLORS.primaryDark,
+        onPress: () => {
+          if (navigationRef.isReady()) {
+            navigationRef.navigate('TontineTypeSelectionScreen');
+          }
+        },
+      },
+      {
+        id: 'pay',
+        label: 'Payer',
+        icon: 'card-outline',
+        iconBg: '#F5A62315',
+        iconColor: COLORS.secondaryText,
+        onPress: () => {
+          if (hasNext) {
+            const p = nextPayment;
+            if (p?.cycleUid && p.tontineUid && navigationRef.isReady()) {
+              navigationRef.navigate('PaymentScreen', {
+                cycleUid: p.cycleUid,
+                tontineUid: p.tontineUid,
+                tontineName: p.tontineName,
+                baseAmount: p.amountDue,
+                penaltyAmount: p.penaltyAmount,
+                cycleNumber: p.cycleNumber,
+              });
+              return;
+            }
+          }
+          navigation.navigate('Tontines');
+        },
+      },
+      {
+        id: 'invite',
+        label: 'Inviter',
+        icon: 'people-outline',
+        iconBg: '#0055A515',
+        iconColor: COLORS.accentDark,
+        onPress: () => {
+          navigation.navigate('Tontines');
+        },
+      },
+      {
+        id: 'reports',
+        label: 'Rapports',
+        icon: 'document-text-outline',
+        iconBg: '#66666615',
+        iconColor: COLORS.gray700,
+        onPress: () => {
+          navigation.navigate('Payments');
+        },
+      },
+    ],
+    [navigation, hasNext, nextPayment]
   );
-  const iconSize = Math.max(20, Math.min(32, Math.floor(buttonSize * 0.4)));
-  const labelFontSize = buttonSize < 70 ? 10 : 11;
-
-  const middleAction: QuickActionItem | null = showNouvelleTontine
-    ? {
-        id: 'nouvelle',
-        icon: 'add-circle',
-        label: 'Nouvelle\nTontine',
-        onPress: onNouvelleTontine,
-      }
-    : showRejoindreTontine && onRejoindreTontine
-      ? {
-          id: 'rejoindre',
-          icon: 'enter-outline',
-          label: 'Rejoindre Tontine',
-          onPress: onRejoindreTontine,
-        }
-      : null;
-
-  const actions: QuickActionItem[] = [
-    { id: 'cotiser', icon: 'card-outline', label: 'Cotiser', onPress: onCotiser },
-    ...(middleAction ? [middleAction] : []),
-    { id: 'historique', icon: 'time-outline', label: 'Historique', onPress: onHistorique },
-    { id: 'aide', icon: 'help-circle-outline', label: 'Aide', onPress: onAide },
-  ];
-
-  const buttonStyle = {
-    width: buttonSize,
-    height: buttonSize,
-    borderRadius: 16,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.07,
-    shadowRadius: 4,
-    elevation: 2,
-  };
 
   return (
-    <View style={styles.actionsGrid}>
-      {actions.map((action) => (
-        <Pressable
-          key={action.id}
-          style={({ pressed }) => [
-            buttonStyle,
-            pressed && styles.actionCardPressed,
-          ]}
-          onPress={action.onPress}
-          accessibilityRole="button"
-          accessibilityLabel={action.label.replace('\n', ' ')}
-        >
-          <View style={styles.actionCardInner}>
-            <View style={[styles.actionIconWrapper, { width: iconSize + 10, height: iconSize + 10, borderRadius: (iconSize + 10) / 2 }]}>
-              <Ionicons name={action.icon} size={iconSize} color="#1A6B3C" />
+    <View>
+      <KelembaSectionHeader title="Actions rapides" />
+      <View style={styles.grid}>
+        {actions.map((a) => (
+          <Pressable
+            key={a.id}
+            onPress={a.onPress}
+            style={({ pressed }) => [
+              styles.cell,
+              {
+                width: cellW,
+                opacity: pressed ? 0.75 : 1,
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={a.label}
+          >
+            <View style={{ width: '100%', alignItems: 'center', gap: 5 }}>
+              <View style={[styles.iconBox, { backgroundColor: a.iconBg }]}>
+                <Ionicons
+                  name={a.icon}
+                  size={18}
+                  color={a.iconColor}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+              </View>
+              <Text style={styles.label}>{a.label}</Text>
             </View>
-            <Text
-              style={[styles.actionLabel, { fontSize: labelFontSize }]}
-              numberOfLines={2}
-              textBreakStrategy="balanced"
-            >
-              {action.label}
-            </Text>
-          </View>
-        </Pressable>
-      ))}
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  actionsGrid: {
+  grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: GAP,
-    paddingHorizontal: PADDING_H,
+    gap: 10,
+    justifyContent: 'space-between',
   },
-  actionCardPressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.97 }],
+  cell: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    borderWidth: 0.5,
+    borderColor: COLORS.gray200,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
   },
-  actionCardInner: {
+  iconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 4,
   },
-  actionIconWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F0F7F3',
-  },
-  actionLabel: {
-    fontWeight: '500',
-    color: '#1A1A1A',
+  label: {
+    fontSize: 10,
+    color: COLORS.gray700,
     textAlign: 'center',
-    marginTop: 6,
+    lineHeight: 14,
   },
 });

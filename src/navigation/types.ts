@@ -5,10 +5,23 @@ export type KycFlowOrigin = 'profile' | 'kycGate';
 
 // ── Auth Stack (non authentifié) ─────────────────────────────
 export type AuthStackParamList = {
-  Splash: undefined;
+  /** Conservé pour référence — non monté dans AuthStackNavigator */
   Onboarding: undefined;
   Login: undefined;
-  Register: undefined;
+  AccountTypeChoice: undefined;
+  JoinTontine:
+    | {
+        token?: string;
+      }
+    | undefined;
+  Register:
+    | {
+        mode: 'MEMBRE' | 'ORGANISATEUR';
+        tontineUid?: string;
+        tontineName?: string;
+        tontineInviteLinkToken?: string;
+      }
+    | undefined;
   ForgotPin: undefined;
   OtpVerification: {
     phone: string;
@@ -40,25 +53,45 @@ export type ProfileStackParamList = {
 export type PaymentsTabInitialSegment = 'contributions' | 'cashValidations';
 
 export type MainTabParamList = {
-  Dashboard: undefined;
+  Dashboard:
+    | {
+        paymentSuccess?: {
+          tontineUid: string;
+          cycleUid: string;
+          amount: number;
+          cycleLabel: string;
+        };
+      }
+    | undefined;
   Tontines: { initialTab?: 'mine' | 'invitations'; openJoinModal?: boolean } | undefined;
   Payments: { initialSegment?: PaymentsTabInitialSegment } | undefined;
-  SavingsTracking: undefined;
+  Notifs: undefined;
+  Report: undefined;
   Profile: NavigatorScreenParams<ProfileStackParamList> | undefined;
 };
 
 // ── Root Stack (screens modaux / par-dessus les tabs) ─────────
 export type RootStackParamList = {
   Splash: undefined;
+  Login: undefined;
   AuthStack: undefined;
   KycStack: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
-  TontineDetails: { tontineUid: string; isCreator?: boolean };
+  TontineDetails: {
+    tontineUid: string;
+    isCreator?: boolean;
+    tab?: 'dashboard' | 'rotation' | 'payments' | 'members';
+  };
   TontineRotation: { tontineUid: string };
   InviteMembers: { tontineUid: string; tontineName: string };
   TontineTypeSelectionScreen: undefined;
-  CreateTontine: undefined;
+  CreateTontine: { initialType?: 'ROTATIVE' | 'EPARGNE' } | undefined;
   RotationReorderScreen: { tontineUid: string };
+  /** Assistant parts + ordre + initialisation cycles */
+  TontineActivationScreen: {
+    tontineUid: string;
+    initialStep?: 'shares' | 'order';
+  };
   SwapRequestScreen: { tontineUid: string };
   TontineContractSignature: {
     mode: 'INVITE_ACCEPT' | 'JOIN_REQUEST';
@@ -66,7 +99,6 @@ export type RootStackParamList = {
     tontineName?: string;
     sharesCount?: number;
   };
-  SavingsCreateScreen: undefined;
   SavingsListScreen: undefined;
   SavingsDetailScreen: { tontineUid: string; uid?: string; isCreator?: boolean };
   SavingsDashboardScreen: { tontineUid: string };
@@ -114,6 +146,8 @@ export type RootStackParamList = {
     cycleNumber: number;
     beneficiaryName: string;
     netAmount: number;
+    /** Pré-sélection depuis le modal tableau de bord (optionnel). */
+    initialPaymentMethod?: 'ORANGE_MONEY' | 'TELECEL_MONEY' | 'CASH';
   };
   CashProofScreen: {
     paymentUid: string;
@@ -129,6 +163,12 @@ export type RootStackParamList = {
     paymentUid: string;
     tontineName: string;
   };
+  /** Historique paginé (route racine) — filtre aligné sur l’onglet cotisations. */
+  PaymentHistory:
+    | {
+        filterPeriod?: 'current_month' | 'last_3_months' | 'all';
+      }
+    | undefined;
   KycUpload: { origin?: KycFlowOrigin } | undefined;
   ScoreHistory: undefined;
   ProfileEdit: undefined;

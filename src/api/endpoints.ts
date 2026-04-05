@@ -359,6 +359,14 @@ export const ENDPOINTS = {
       method: 'PATCH' as const,
       url: `${BASE}/v1/notifications/${uid}/read`,
     }),
+    ARCHIVE: (uid: string) => ({
+      method: 'DELETE' as const,
+      url: `${BASE}/v1/notifications/${uid}`,
+    }),
+    ARCHIVE_MANY: {
+      method: 'POST' as const,
+      url: `${BASE}/v1/notifications/archive`,
+    },
     LIST: { method: 'GET' as const, url: `${BASE}/v1/notifications` },
   },
 

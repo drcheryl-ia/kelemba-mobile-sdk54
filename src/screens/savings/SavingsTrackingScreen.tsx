@@ -16,7 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSelector } from 'react-redux';
 import type { MainTabParamList } from '@/navigation/types';
 import { useTontines } from '@/hooks/useTontines';
@@ -47,7 +47,9 @@ import {
 import { resolveOrganizerPayoutNavigationData } from '@/utils/organizerPayoutNavigation';
 import { parseApiError, getErrorMessageForCode } from '@/api/errors';
 
-type Props = BottomTabScreenProps<MainTabParamList, 'SavingsTracking'>;
+type Props = {
+  navigation: BottomTabNavigationProp<MainTabParamList>;
+};
 
 const ROLE_FILTERS: TrackingRoleFilter[] = ['all', 'member', 'organizer'];
 

@@ -16,14 +16,14 @@ import { ProfileStack } from './ProfileStack';
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 const TAB_ICONS: Record<
-  keyof MainTabParamList,
+  string,
   { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }
 > = {
-  Accueil: { active: 'home', inactive: 'home-outline' },
+  Dashboard: { active: 'home', inactive: 'home-outline' },
   Tontines: { active: 'people', inactive: 'people-outline' },
-  Paiements: { active: 'wallet', inactive: 'wallet-outline' },
+  Payments: { active: 'wallet', inactive: 'wallet-outline' },
   Notifs: { active: 'notifications', inactive: 'notifications-outline' },
-  Profil: { active: 'person-circle', inactive: 'person-circle-outline' },
+  Profile: { active: 'person-circle', inactive: 'person-circle-outline' },
 };
 
 export const MainTabs: React.FC = () => {
@@ -77,17 +77,39 @@ export const MainTabs: React.FC = () => {
       },
 
       tabBarIcon: ({ focused, color }) => {
-        const icons = TAB_ICONS[route.name as keyof MainTabParamList];
-        const iconName = focused ? icons.active : icons.inactive;
+        const icons = TAB_ICONS[route.name];
+        const iconName = icons
+          ? focused
+            ? icons.active
+            : icons.inactive
+          : 'ellipse-outline';
         return <Ionicons name={iconName} size={24} color={color} />;
       },
     })}
   >
-    <Tab.Screen name="Accueil" component={DashboardScreen} />
+    <Tab.Screen
+      name="Dashboard"
+      component={DashboardScreen}
+      options={{ title: 'Accueil' }}
+    />
     <Tab.Screen name="Tontines" component={TontineListScreen} />
-    <Tab.Screen name="Paiements" component={ContributionHistoryScreen} />
-    <Tab.Screen name="Notifs" component={NotificationsScreen} />
-    <Tab.Screen name="Profil" component={ProfileStack} />
+    <Tab.Screen
+      name="Payments"
+      component={ContributionHistoryScreen}
+      options={{ title: 'Paiements' }}
+    />
+    <Tab.Screen
+      name="Notifs"
+      component={
+        NotificationsScreen as React.ComponentType<Record<string, unknown>>
+      }
+      options={{ title: 'Notifs' }}
+    />
+    <Tab.Screen
+      name="Profile"
+      component={ProfileStack}
+      options={{ title: 'Profil' }}
+    />
   </Tab.Navigator>
   );
 };

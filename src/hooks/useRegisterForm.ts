@@ -80,7 +80,7 @@ export function useRegisterForm(): UseRegisterFormReturn {
       try {
         const phone = (phoneOverride ?? formState.phone).replace(/\s/g, '');
         const fullPhone = phone.startsWith('236') ? `+${phone}` : `+236${phone}`;
-        await sendOtp(fullPhone);
+        await sendOtp(fullPhone, { purpose: 'REGISTER' });
         return true;
       } catch (err: unknown) {
         const apiErr = parseApiError(err);

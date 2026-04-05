@@ -2,8 +2,8 @@
  * API Tontines — prévisualisation, création, initialisation cycles.
  */
 import axios from 'axios';
-import { ENV } from '@/config/env';
 import { apiClient } from './apiClient';
+import { publicApiClient } from '@/services/publicApiClient';
 import { ENDPOINTS } from './endpoints';
 import { parseApiError } from './errors/errorHandler';
 import { ApiError } from './errors/ApiError';
@@ -48,16 +48,6 @@ import type {
   CreateJoinRequestWithSignaturePayload,
 } from '@/types/contract';
 
-/** Client sans intercepteur auth — pour GET preview invitation */
-const unauthenticatedClient = axios.create({
-  baseURL: ENV.API_URL,
-  timeout: ENV.API_TIMEOUT_MS,
-  headers: {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  },
-});
-
 /**
  * Prévisualisation d'une tontine via lien d'invitation (non authentifié).
  * GET /api/v1/tontines/invitation/:tontineUid/preview
@@ -67,7 +57,7 @@ export const getTontinePreview = async (
 ): Promise<TontinePreview> => {
   try {
     const { url } = ENDPOINTS.TONTINES.INVITATION_PREVIEW(tontineUid);
-    const response = await unauthenticatedClient.get<TontinePreview>(url);
+    const response = await publicApiClient.get<TontinePreview>(url);
     return response.data;
   } catch (err: unknown) {
     const apiError = parseApiError(err);
@@ -431,6 +421,13 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
   const isMyTurnNow: boolean | undefined =
     raw.isMyTurnNow === true ? true : raw.isMyTurnNow === false ? false : undefined;
 
+  const memberTotalContributed = optionalFiniteNumber(
+    raw.memberTotalContributed ?? raw.totalContributedByMember
+  );
+  const tontinePunctualityRate = optionalFiniteNumber(
+    raw.tontinePunctualityRate ?? raw.punctualityRate
+  );
+
   return {
     ...base,
     payoutBeneficiaryName: payoutName,
@@ -443,6 +440,8 @@ function normalizeTontineListItem(raw: Record<string, unknown>): TontineListItem
     myPayoutCycleNumber,
     myScheduledPayoutDate,
     isMyTurnNow,
+    memberTotalContributed: memberTotalContributed ?? undefined,
+    tontinePunctualityRate: tontinePunctualityRate ?? undefined,
   };
 }
 

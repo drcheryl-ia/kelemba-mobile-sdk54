@@ -25,6 +25,10 @@ import {
 import { canShowOrganizerPayoutFromListItem } from '@/utils/cyclePayoutEligibility';
 
 const GREEN = '#1A6B3C';
+/** Tailwind `border-green-500` (palette par défaut v3) — liste « Mes tontines » */
+const TW_GREEN_500 = '#22C55E';
+/** Alias historique — même valeur que `TW_GREEN_500` (évite ReferenceError si référence résiduelle). */
+const EMERALD_FRAME = TW_GREEN_500;
 const ORANGE = '#F5A623';
 const BLUE = '#0055A5';
 const RED = '#D0021B';
@@ -48,10 +52,10 @@ const STATUS_KEYS: Record<TontineStatus, string> = {
   CANCELLED: 'tontineList.statusCancelled',
 };
 
-/** Badge global : fond léger + texte teinté (plus discret qu’un plein bloc) */
-const STATUS_HEADER_STYLE: Record<TontineStatus, { bg: string; fg: string }> = {
+/** Badge global : fond léger + texte teinté (plus discret qu'un plein bloc) */
+const STATUS_HEADER_STYLE: Record<TontineStatus, { bg: string; fg: string; radius?: number }> = {
   DRAFT: { bg: '#FFF7E6', fg: '#B45309' },
-  ACTIVE: { bg: '#E8F5E9', fg: GREEN },
+  ACTIVE: { bg: '#1A6B3C15', fg: GREEN, radius: 8 },
   BETWEEN_ROUNDS: { bg: '#E8F1FF', fg: BLUE },
   PAUSED: { bg: '#FFF7E6', fg: '#B45309' },
   COMPLETED: { bg: '#F3F4F6', fg: '#4B5563' },
@@ -183,7 +187,7 @@ function primaryActionLabel(
 }
 
 /**
- * Texte d’insight secondaire : évite la redondance avec l’encart échéance (paiement).
+ * Texte d'insight secondaire : évite la redondance avec l'encart échéance (paiement).
  */
 function insightText(
   item: TontineListItem,
@@ -204,7 +208,7 @@ function insightText(
         )
       : t(
           'tontineList.pendingSubJoinRequest',
-          'En attente de validation par l’organisateur.'
+          "En attente de validation par l\u2019organisateur."
         );
   }
 
@@ -265,8 +269,8 @@ function insightText(
 
   if (payState.uiStatus === 'DUE_TODAY') {
     return item.type === 'EPARGNE'
-      ? t('tontineList.savingsDueTodayInsight', 'Versement attendu aujourd’hui.')
-      : t('tontineList.dueTodayInsight', 'Cotisation attendue aujourd’hui.');
+      ? t('tontineList.savingsDueTodayInsight', "Versement attendu aujourd’hui.")
+      : t('tontineList.dueTodayInsight', "Cotisation attendue aujourd’hui.");
   }
 
   if (payState.uiStatus === 'DUE_SOON') {
@@ -342,7 +346,7 @@ function encartFromPaymentState(
       icon: 'pause-circle',
       title: t(
         'tontineList.savingsEpargneSuspendedEncart',
-        'Compte suspendu — contactez l’organisateur si besoin.'
+        "Compte suspendu — contactez l’organisateur si besoin."
       ),
     };
   }
@@ -395,7 +399,7 @@ function encartFromPaymentState(
     return {
       tone: 'warning',
       icon: 'today',
-      title: t('tontineList.cardEncartDueToday', 'À payer aujourd’hui'),
+      title: t('tontineList.cardEncartDueToday', "À payer aujourd’hui"),
       subtitle:
         dueFormatted != null
           ? t('tontineList.currentDueWithDate', 'Échéance actuelle : {{date}}', {
@@ -716,13 +720,13 @@ export const TontineCard: React.FC<TontineCardProps> = ({
   // 1. membershipStatus === 'PENDING'
   if (isMembershipPending(item)) {
     return (
-      <View style={[styles.pendingCard, typeSurfaceStyle, styles.cardListBorder]}>
+      <View style={[styles.pendingCard, typeSurfaceStyle]}>
         <View style={styles.headerBlock}>
           <View style={styles.headerTopRow}>
             <Text style={styles.cardTitle} numberOfLines={2}>
               {item.name}
             </Text>
-            <View style={[styles.statusBadgeHeader, { backgroundColor: statusHeader.bg }]}>
+            <View style={[styles.statusBadgeHeader, { backgroundColor: statusHeader.bg, borderRadius: statusHeader.radius ?? 999 }]}>
               <Text style={[styles.statusBadgeHeaderText, { color: statusHeader.fg }]}>{statusLabel}</Text>
             </View>
           </View>
@@ -767,7 +771,7 @@ export const TontineCard: React.FC<TontineCardProps> = ({
   // 2. status === 'DRAFT'
   if (item.status === 'DRAFT') {
     return (
-      <View style={[styles.card, typeSurfaceStyle, styles.cardListBorder]}>
+      <View style={[styles.card, typeSurfaceStyle]}>
         <Pressable
           onPress={() => onPress(item)}
           accessibilityRole="button"
@@ -779,7 +783,7 @@ export const TontineCard: React.FC<TontineCardProps> = ({
               <Text style={styles.cardTitle} numberOfLines={2}>
                 {item.name}
               </Text>
-              <View style={[styles.statusBadgeHeader, { backgroundColor: statusHeader.bg }]}>
+              <View style={[styles.statusBadgeHeader, { backgroundColor: statusHeader.bg, borderRadius: statusHeader.radius ?? 999 }]}>
                 <Text style={[styles.statusBadgeHeaderText, { color: statusHeader.fg }]}>{statusLabel}</Text>
               </View>
             </View>
@@ -858,7 +862,7 @@ export const TontineCard: React.FC<TontineCardProps> = ({
       : null;
 
   return (
-    <View style={[styles.card, typeSurfaceStyle, styles.cardListBorder]}>
+    <View style={[styles.card, typeSurfaceStyle]}>
       <Pressable
         onPress={() => onPress(item)}
         accessibilityRole="button"
@@ -870,7 +874,7 @@ export const TontineCard: React.FC<TontineCardProps> = ({
             <Text style={styles.cardTitle} numberOfLines={2}>
               {item.name}
             </Text>
-            <View style={[styles.statusBadgeHeader, { backgroundColor: statusHeader.bg }]}>
+            <View style={[styles.statusBadgeHeader, { backgroundColor: statusHeader.bg, borderRadius: statusHeader.radius ?? 999 }]}>
               <Text style={[styles.statusBadgeHeaderText, { color: statusHeader.fg }]}>{statusLabel}</Text>
             </View>
           </View>
@@ -885,9 +889,17 @@ export const TontineCard: React.FC<TontineCardProps> = ({
 
         <SavingsEpargneMetaLines item={item} t={t} />
 
-        {encart.tone === 'muted' && (
+        {(encart.tone === 'muted' || personalKind === 'UP_TO_DATE') && (
           <View style={styles.personalPillRow}>
-            <View style={[styles.personalPill, { backgroundColor: personalStatus.background }]}>
+            <View style={[
+              styles.personalPill,
+              personalKind === 'UP_TO_DATE'
+                ? styles.paidPill
+                : { backgroundColor: personalStatus.background },
+            ]}>
+              {personalKind === 'UP_TO_DATE' && (
+                <Ionicons name="checkmark" size={12} color={GREEN} />
+              )}
               <Text style={[styles.personalPillText, { color: personalStatus.color }]} numberOfLines={1}>
                 {personalStatus.label}
               </Text>
@@ -944,20 +956,21 @@ export const TontineCard: React.FC<TontineCardProps> = ({
 };
 
 const styles = StyleSheet.create({
+  /**
+   * Coque liste « Mes tontines » : border-green-500 2px, rounded-xl (12px), shadow-sm.
+   * (Équivalent Tailwind : `border-2 border-green-500 rounded-xl shadow-sm`)
+   */
   card: {
-    borderRadius: 22,
+    borderRadius: 16,
     marginBottom: 14,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    elevation: 3,
+    borderWidth: 2,
+    borderColor: EMERALD_FRAME,
     overflow: 'hidden',
-  },
-  /** Bordure verte — liste des tontines */
-  cardListBorder: {
-    borderWidth: 1.5,
-    borderColor: GREEN,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 3,
   },
   /** Tontine rotative (fond léger vert) */
   cardBgRotative: {
@@ -1015,9 +1028,17 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   pendingCard: {
-    borderRadius: 22,
+    borderRadius: 16,
     padding: 20,
     marginBottom: 14,
+    borderWidth: 2,
+    borderColor: EMERALD_FRAME,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 3,
   },
   headerBlock: {
     marginBottom: 4,
@@ -1120,6 +1141,12 @@ const styles = StyleSheet.create({
   personalPillText: {
     fontSize: 12,
     fontWeight: '800',
+  },
+  paidPill: {
+    backgroundColor: '#1A6B3C12',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   encartWrap: {
     marginTop: 16,

@@ -3,6 +3,8 @@ import { View } from 'react-native';
 
 export { SplashScreenComponent } from './SplashScreen';
 export { OnboardingScreen } from './OnboardingScreen';
+export { AccountTypeChoiceScreen } from './AccountTypeChoiceScreen';
+export { JoinTontineScreen } from './JoinTontineScreen';
 export { LoginScreenComponent } from './LoginScreen';
 export { RegisterScreenComponent } from './RegisterScreen';
 export { OtpVerificationScreen } from './OtpVerificationScreen';

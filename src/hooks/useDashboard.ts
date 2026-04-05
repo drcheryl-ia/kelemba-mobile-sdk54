@@ -115,7 +115,7 @@ export function useDashboard(): DashboardData {
             throw parseApiError(err);
           }
         },
-        staleTime: 30 * 1000,
+        staleTime: 15_000,
       },
     ],
   });

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -30,7 +30,7 @@ import {
   useDecideSwapRequest,
 } from '@/hooks/useTontineRotationActions';
 import { useInviteLink } from '@/hooks/useInviteLink';
-import { usePaymentHistory, type PaymentFilter } from '@/hooks/usePaymentHistory';
+import { usePaymentHistory } from '@/hooks/usePaymentHistory';
 import { useTontineRotation } from '@/hooks/useTontineRotation';
 import { useNextPayment } from '@/hooks/useNextPayment';
 import { useContributionHistory } from '@/hooks/useContributionHistory';
@@ -47,7 +47,7 @@ import { getCycleCompletion } from '@/api/cyclePayoutApi';
 import { getErrorMessageForCode } from '@/api/errors';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { logger } from '@/utils/logger';
-import { formatFcfa, maskPhone } from '@/utils/formatters';
+import { formatFcfa, formatFcfaAmount, maskPhone } from '@/utils/formatters';
 import { getInitials, hashToColor } from '@/utils/avatarUtils';
 import { resolveCurrentCycleMetrics } from '@/utils/currentCycleMetrics';
 import { canShowOrganizerPayoutCta } from '@/utils/cyclePayoutEligibility';
@@ -64,6 +64,15 @@ import {
   RotationTimelineItem,
 } from '@/components/rotation';
 import type { TontineStatus, TontineMember } from '@/types/tontine';
+import type { TontineFrequency } from '@/api/types/api.types';
+import { TontineDetailHeader } from '@/components/tontines/TontineDetailHeader';
+import type { TontineDetailTabId } from '@/components/tontines/TontineDetailHeader';
+import { DashboardTab } from '@/screens/tontines/tabs/DashboardTab';
+import { RotationTab } from '@/screens/tontines/tabs/RotationTab';
+import { PaymentsTab } from '@/screens/tontines/tabs/PaymentsTab';
+import { MembersTab } from '@/screens/tontines/tabs/MembersTab';
+import { useOrganizerCashPendingForTontine } from '@/hooks/useOrganizerCashPendingForTontine';
+import { COLORS } from '@/theme/colors';
 
 function getMemberLabels(member: TontineMember, currentUserUid: string | null): string[] {
   const labels: string[] = [];
@@ -73,8 +82,6 @@ function getMemberLabels(member: TontineMember, currentUserUid: string | null): 
 }
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TontineDetails'>;
-
-type TabId = 'dashboard' | 'rotation' | 'payments' | 'members';
 
 const KELEMBA_GREEN = '#1A6B3C';
 const KELEMBA_GREEN_LIGHT = '#E8F5EE';
@@ -141,13 +148,13 @@ export const TontineDetailsScreen: React.FC<Props> = ({
   navigation,
   route,
 }) => {
-  const { tontineUid, isCreator: isCreatorParam } = route.params;
+  const { tontineUid, isCreator: isCreatorParam, tab: tabParam } = route.params;
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const userUid = useSelector((state: RootState) => selectUserUid(state));
 
-  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
-  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
+  const [activeTab, setActiveTab] = useState<TontineDetailTabId>('dashboard');
+  const tabInitRef = useRef(false);
   const [isActivating, setIsActivating] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -268,7 +275,12 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     isFetchingNextPage,
     fetchNextPage,
     refetch: refetchPayments,
-  } = usePaymentHistory(tontineUid, paymentFilter);
+  } = usePaymentHistory(tontineUid, 'all');
+
+  const { items: organizerCashForKpi } = useOrganizerCashPendingForTontine(
+    tontineUid,
+    isCreator
+  );
 
   const sortedMembers = useMemo(
     () => [...members].sort((a, b) => a.rotationOrder - b.rotationOrder),
@@ -585,6 +597,142 @@ export const TontineDetailsScreen: React.FC<Props> = ({
     rotationQueryEnabled,
   ]);
 
+  useEffect(() => {
+    if (tabInitRef.current) return;
+    if (
+      tabParam === 'dashboard' ||
+      tabParam === 'rotation' ||
+      tabParam === 'payments' ||
+      tabParam === 'members'
+    ) {
+      setActiveTab(tabParam);
+      tabInitRef.current = true;
+    }
+  }, [tabParam]);
+
+  const kpiCells = useMemo(() => {
+    if (!tontine) {
+      return [
+        { label: '—', value: '—' },
+        { label: '—', value: '—' },
+        { label: '—', value: '—' },
+        { label: '—', value: '—' },
+      ];
+    }
+    const freqShort = (f: TontineFrequency | undefined): string => {
+      if (!f) return '—';
+      const m: Record<TontineFrequency, string> = {
+        DAILY: 'Quot.',
+        WEEKLY: 'Hebdo',
+        BIWEEKLY: 'Bi.',
+        MONTHLY: 'Mens.',
+      };
+      return m[f];
+    };
+    const activeMembers = members.filter((m) => m.membershipStatus === 'ACTIVE');
+    const totalParts = activeMembers.reduce((s, m) => s + m.sharesCount, 0);
+    const lateMembers = members.filter(
+      (m) =>
+        m.currentCyclePaymentStatus === 'OVERDUE' ||
+        m.currentCyclePaymentStatus === 'PENALIZED'
+    ).length;
+    const okMembers = members.filter(
+      (m) => m.currentCyclePaymentStatus === 'COMPLETED'
+    ).length;
+
+    const now = new Date();
+    const ym = now.getMonth();
+    const yy = now.getFullYear();
+    const paidMonth = payments.reduce((s, p) => {
+      if (p.status !== 'COMPLETED' || !p.paidAt) return s;
+      const d = new Date(p.paidAt);
+      if (d.getMonth() !== ym || d.getFullYear() !== yy) return s;
+      return s + p.amount;
+    }, 0);
+    const penaltiesMonth = payments.reduce((s, p) => {
+      if (!p.paidAt) return s;
+      const d = new Date(p.paidAt);
+      if (d.getMonth() !== ym || d.getFullYear() !== yy) return s;
+      return s + (p.penalty ?? 0);
+    }, 0);
+
+    const completedRot = rotationList.filter((c) => c.displayStatus === 'VERSÉ').length;
+
+    const dueToPay =
+      nextPaymentForUi?.tontineUid === tontineUid
+        ? formatFcfaAmount(Math.round(nextPaymentForUi.totalDue ?? 0))
+        : '—';
+
+    switch (activeTab) {
+      case 'dashboard':
+        return [
+          { label: 'Part', value: freqShort(tontine.frequency) },
+          {
+            label: 'Cycle',
+            value: `${currentCycle?.cycleNumber ?? 0}/${tontine.totalCycles}`,
+          },
+          { label: 'Mon tour', value: `C${rotationCurrentCycleNumber}` },
+          { label: 'Membres', value: String(activeMembers.length) },
+        ];
+      case 'rotation':
+        return [
+          {
+            label: 'Total cycles',
+            value: String(rotationList.length || tontine.totalCycles),
+          },
+          { label: 'Complétés', value: String(completedRot) },
+          { label: 'Mon tour', value: `C${rotationCurrentCycleNumber}` },
+          {
+            label: 'Cagnotte',
+            value: `${formatFcfaAmount(Math.round(rotationTotalAmount))} F`,
+          },
+        ];
+      case 'payments':
+        return [
+          {
+            label: 'Payé (mois)',
+            value: `${formatFcfaAmount(Math.round(paidMonth))} F`,
+          },
+          { label: 'À payer', value: dueToPay },
+          {
+            label: 'Pénalités',
+            value: `${formatFcfaAmount(Math.round(penaltiesMonth))} F`,
+          },
+          {
+            label: 'Espèces',
+            value: isCreator ? String(organizerCashForKpi.length) : '—',
+          },
+        ];
+      case 'members':
+        return [
+          { label: 'Membres actifs', value: String(activeMembers.length) },
+          { label: 'Total parts', value: String(totalParts) },
+          { label: 'En retard', value: String(lateMembers) },
+          { label: 'À jour', value: String(okMembers) },
+        ];
+      default:
+        return [
+          { label: '—', value: '—' },
+          { label: '—', value: '—' },
+          { label: '—', value: '—' },
+          { label: '—', value: '—' },
+        ];
+    }
+  }, [
+    activeTab,
+    tontine,
+    members,
+    currentCycle,
+    rotationList,
+    rotationCurrentCycleNumber,
+    rotationTotalAmount,
+    payments,
+    nextPaymentForUi,
+    tontineUid,
+    isCreator,
+    organizerCashForKpi.length,
+  ]);
+
   // Recharger la rotation à chaque retour sur cet écran
   // pour afficher les tours immédiatement après activation.
   useFocusEffect(
@@ -698,896 +846,34 @@ export const TontineDetailsScreen: React.FC<Props> = ({
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          style={styles.headerBackButton}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.back')}
-        >
-          <Ionicons name="arrow-back" size={24} color={KELEMBA_GREEN} />
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle} numberOfLines={2}>
-            {tontine.name}
-          </Text>
-          <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {headerSubtitle}
-          </Text>
-        </View>
-        <Pressable
-          style={styles.settingsButton}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Paramètres"
-          onPress={() => showToast('Paramètres à venir', 'info')}
-        >
-          <Ionicons name="settings-outline" size={24} color="#6B7280" />
-        </Pressable>
-      </View>
-
-      <View style={styles.tabScrollView}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabRow}
-        >
-          {(['dashboard', 'rotation', 'payments', 'members'] as const).map((tab) => (
-          <Pressable
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {t(`tontineDetails.tab${tab.charAt(0).toUpperCase() + tab.slice(1)}`)}
-            </Text>
-            {activeTab === tab && <View style={styles.tabUnderline} />}
-          </Pressable>
-        ))}
-        </ScrollView>
-      </View>
-
-      {activeTab === 'dashboard' && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={styles.scrollContentInner}
-          refreshControl={
-            <RefreshControl
-              refreshing={false}
-              onRefresh={refetch}
-              tintColor="#1A6B3C"
-            />
-          }
-        >
-          {currentCycle?.status === 'ACTIVE' ? (
-            <>
-              <View style={styles.cycleOverviewCard}>
-                <View style={styles.cycleOverviewHeader}>
-                  <Text style={styles.cycleOverviewTitle}>
-                    {t('tontineDetails.cycleOverviewTitle', 'Cycle de Tontine')}
-                  </Text>
-                  <View style={[styles.cycleStatusBadge, { backgroundColor: statusColor }]}>
-                    <Text style={styles.cycleStatusBadgeText}>{statusLabel}</Text>
-                  </View>
-                </View>
-                <View style={styles.cycleOverviewRow}>
-                  <Text style={styles.cycleOverviewLabel}>
-                    {t('tontineDetails.monthLabel', 'Mois')} {currentCycle.cycleNumber} / {tontine.totalCycles}
-                  </Text>
-                  <Text style={styles.cycleOverviewPercent}>
-                    {Math.round(currentCycleMetrics.progress * 100)}%
-                  </Text>
-                </View>
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[styles.progressFill, { width: `${currentCycleMetrics.progress * 100}%` }]}
-                  />
-                </View>
-                {cycleOverviewMemberHint ? (
-                  <Text style={styles.cycleOverviewHint}>
-                    {cycleOverviewMemberHint.label} :{' '}
-                    {formatDateLong(cycleOverviewMemberHint.dateStr)}
-                  </Text>
-                ) : null}
-                {delayedByMemberIds.length > 0 && (
-                  <View style={styles.delayedBanner}>
-                    <Ionicons name="warning" size={18} color="#F5A623" />
-                    <Text style={styles.delayedText}>
-                      {delayedByMemberIds.length} membre(s) en retard
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.metricCardRow}>
-                <View style={styles.metricCard}>
-                  <Text style={styles.metricCardLabel}>
-                    {t('tontineDetails.collectedGrossLabel', 'Collecté brut')}
-                  </Text>
-                  <Text style={styles.metricCardValueGreen}>
-                    {formatFcfa(currentCycleMetrics.collected)}
-                  </Text>
-                </View>
-                <View style={styles.metricCard}>
-                  <Text style={styles.metricCardLabel}>
-                    {t('tontineDetails.expectedLabel', 'Attendu')}
-                  </Text>
-                  <Text style={styles.metricCardValueOrange}>
-                    {formatFcfa(currentCycleMetrics.expected)}
-                  </Text>
-                </View>
-              </View>
-              {currentCycleMetrics.beneficiaryNetAmount != null &&
-                currentCycleMetrics.beneficiaryNetAmount > 0 && (
-                  <View style={styles.metricCardRow}>
-                    <View style={styles.metricCard}>
-                      <Text style={styles.metricCardLabel}>
-                        {t('tontineDetails.netPayoutLabel', 'Montant à verser')}
-                      </Text>
-                      <Text style={styles.metricCardValueGreen}>
-                        {formatFcfa(currentCycleMetrics.beneficiaryNetAmount)}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-              {canNavigatePayout && currentCycle && (
-                <Pressable
-                  style={[styles.payoutCta, payoutNavBusy && styles.payoutCtaDisabled]}
-                  onPress={handleOrganizerPayoutToCycle}
-                  disabled={payoutNavBusy}
-                  accessibilityRole="button"
-                  accessibilityLabel="Payer la cagnotte"
-                  accessibilityState={{ disabled: payoutNavBusy }}
-                >
-                  {payoutNavBusy ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.payoutCtaText}>PAYER LA CAGNOTTE</Text>
-                  )}
-                </Pressable>
-              )}
-
-              {(nextPaymentForUi?.tontineUid === tontineUid ||
-                totalDue > 0 ||
-                (listItemForTontine != null &&
-                  resolveDisplayPaymentDate(listItemForTontine) != null)) &&
-                memberNextPaymentLine && (
-                <View style={styles.nextPaymentCard}>
-                  <Ionicons name="alarm-outline" size={20} color="#92400E" />
-                  <Text style={styles.nextPaymentText}>
-                    {memberNextPaymentLine.prefix}
-                    {' : '}
-                    <Text style={styles.nextPaymentBold}>
-                      {formatDateLong(memberNextPaymentLine.dateStr)} — {formatFcfa(totalDue)}
-                    </Text>
-                  </Text>
-                </View>
-              )}
-
-              <Text style={styles.sectionTitle}>
-                {t('tontineDetails.contributionStatusTitle', 'STATUT DES COTISATIONS')}
-              </Text>
-              <View style={styles.membersCard}>
-                {sortedMembers.map((m, index) => {
-                  const isYou = userUid != null && m.userUid === userUid;
-                  const isBeneficiary =
-                    currentCycle.beneficiaryMembershipUid === m.uid;
-                  const payStatus = m.currentCyclePaymentStatus ?? 'PENDING';
-                  const isPaid = payStatus === 'COMPLETED';
-                  const isLate = delayedByMemberIds.includes(m.userUid);
-                  const memberDue = tontine.amountPerShare * m.sharesCount;
-
-                  return (
-                    <View
-                      key={m.uid}
-                      style={[
-                        styles.memberRow,
-                        index < sortedMembers.length - 1 && styles.memberRowBorder,
-                      ]}
-                    >
-                      <View style={[styles.avatar, { backgroundColor: hashToColor(m.fullName) }]}>
-                        <Text style={styles.avatarText}>{getInitials(m.fullName)}</Text>
-                      </View>
-
-                      <View style={styles.memberInfo}>
-                        <Text style={styles.memberName}>
-                          {m.fullName}{isYou ? ' (Vous)' : ''}
-                        </Text>
-                        {isBeneficiary && (
-                          <View style={styles.beneficiaryBadge}>
-                            <Ionicons name="checkmark-circle" size={12} color={KELEMBA_GREEN} />
-                            <Text style={styles.beneficiaryText}>
-                              {t('tontineDetails.receivesPot', 'Reçoit le pot ce mois')}
-                            </Text>
-                          </View>
-                        )}
-                        <Text style={styles.memberDueText}>
-                          {formatFcfa(memberDue)}
-                        </Text>
-                      </View>
-
-                      <View
-                        style={[
-                          styles.payStatusPill,
-                          isPaid && styles.payStatusPaid,
-                          isLate && styles.payStatusLate,
-                          !isPaid && !isLate && styles.payStatusPending,
-                        ]}
-                      >
-                        {isPaid ? (
-                          <Ionicons name="checkmark-circle" size={18} color={KELEMBA_GREEN} />
-                        ) : isLate ? (
-                          <Ionicons name="warning" size={18} color="#D0021B" />
-                        ) : (
-                          <Ionicons name="time-outline" size={18} color="#F5A623" />
-                        )}
-                        <Text
-                          style={[
-                            styles.payStatusText,
-                            isPaid && styles.payStatusTextPaid,
-                            isLate && styles.payStatusTextLate,
-                            !isPaid && !isLate && styles.payStatusTextPending,
-                          ]}
-                        >
-                          {isPaid ? t('tontineDetails.paid', 'Payé') : isLate ? t('tontineDetails.late', 'En retard') : t('tontineDetails.pending', 'En attente')}
-                        </Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            </>
-          ) : isDraft && isCreator ? (
-            <View style={styles.draftPanel}>
-              <View style={styles.draftBadge}>
-                <Text style={styles.draftBadgeText}>
-                  {t('tontineList.statusDraft', 'Brouillon')}
-                </Text>
-              </View>
-              <Text style={styles.draftPanelTitle}>
-                {t('tontineDetails.draftPanelTitle', 'Partagez votre tontine')}
-              </Text>
-              <Text style={styles.draftPanelSubtitle}>
-                {t('tontineDetails.draftPanelSubtitle', 'Invitez vos membres pour démarrer.')}
-              </Text>
-              <Text style={styles.draftPanelSubtitle}>
-                {t('tontineDetails.draftPanelStartDate', 'Démarrage prévu le {{date}}', {
-                  date: formatDateLong(tontine.startDate),
-                })}
-              </Text>
-              {inviteLinkLoading ? (
-                <View style={styles.qrContainer}>
-                  <ActivityIndicator size="large" color="#1A6B3C" />
-                </View>
-              ) : inviteLinkData?.inviteUrl ? (
-                <>
-                  <View style={styles.qrContainer}>
-                    <QRCode
-                      value={inviteLinkData.inviteUrl}
-                      size={160}
-                      color="#1A6B3C"
-                      backgroundColor="#FFFFFF"
-                    />
-                  </View>
-                  <Pressable
-                    style={styles.shareButton}
-                    onPress={async () => {
-                      try {
-                        const Clipboard = await import('expo-clipboard');
-                        await Clipboard.setStringAsync(inviteLinkData.inviteUrl);
-                        showToast(t('tontineDetails.copyLink', 'Lien copié'), 'info');
-                      } catch {
-                        Share.share({
-                          message: inviteLinkData.inviteUrl,
-                          title: tontine.name,
-                        });
-                      }
-                    }}
-                  >
-                    <Ionicons name="copy-outline" size={20} color="#1A6B3C" />
-                    <Text style={styles.shareButtonText}>
-                      {t('tontineDetails.copyLink', 'Copier le lien')}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.shareButton}
-                    onPress={() => {
-                      const message = `Rejoignez ma tontine "${tontine.name}" sur Kelemba : ${inviteLinkData.inviteUrl}`;
-                      Linking.openURL(
-                        `whatsapp://send?text=${encodeURIComponent(message)}`
-                      ).catch(() => Share.share({ message }));
-                    }}
-                  >
-                    <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-                    <Text style={styles.shareButtonText}>
-                      {t('tontineDetails.shareWhatsApp', 'Partager via WhatsApp')}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.shareButton}
-                    onPress={() => {
-                      const message = `Rejoignez ma tontine "${tontine.name}" sur Kelemba : ${inviteLinkData.inviteUrl}`;
-                      Linking.openURL(`sms:?body=${encodeURIComponent(message)}`).catch(() =>
-                        Share.share({ message })
-                      );
-                    }}
-                  >
-                    <Ionicons name="chatbubble-outline" size={20} color="#1A6B3C" />
-                    <Text style={styles.shareButtonText}>
-                      {t('tontineDetails.shareSms', 'Partager via SMS')}
-                    </Text>
-                  </Pressable>
-                  <View style={styles.divider} />
-                  <Pressable
-                    style={styles.manageCta}
-                    onPress={() =>
-                      navigation.navigate('InviteMembers', {
-                        tontineUid,
-                        tontineName: tontine.name,
-                      })
-                    }
-                  >
-                    <Ionicons name="mail-outline" size={22} color="#FFFFFF" />
-                    <Text style={styles.manageCtaText}>
-                      {t('tontineDetails.manageInvitations', 'Gérer les invitations')}
-                    </Text>
-                  </Pressable>
-                  {members.filter((m) => m.membershipStatus === 'ACTIVE').length >= 2 && (
-                    <>
-                      <View style={styles.divider} />
-                      <Pressable
-                        style={[styles.activateBtn, isActivating && styles.activateBtnDisabled]}
-                        onPress={handleActivateTontine}
-                        disabled={isActivating}
-                        accessibilityRole="button"
-                      >
-                        {isActivating ? (
-                          <ActivityIndicator size="small" color="#FFFFFF" />
-                        ) : (
-                          <>
-                            <Ionicons name="play-circle-outline" size={22} color="#FFFFFF" />
-                            <Text style={styles.activateBtnText}>
-                              {t('tontineDetails.activateTontine', 'Démarrer la tontine')}
-                            </Text>
-                          </>
-                        )}
-                      </Pressable>
-                      <Text style={styles.activateHint}>
-                        {t(
-                          'tontineDetails.activateHint',
-                          'Les cycles seront attribués dans l\'ordre de rotation configuré.'
-                        )}
-                      </Text>
-                    </>
-                  )}
-                </>
-              ) : (
-                <View style={styles.emptyCycle}>
-                  <Text style={styles.emptyCycleText}>
-                    {t('tontineDetails.notStarted')}
-                  </Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={styles.emptyCycle}>
-              <Text style={styles.emptyCycleText}>
-                {tontine.status === 'DRAFT'
-                  ? t('tontineDetails.notStarted')
-                  : tontine.status === 'BETWEEN_ROUNDS'
-                    ? t(
-                        'tontineDetails.betweenRoundsMemberHint',
-                        'En attente du lancement de la prochaine rotation par l’organisateur.'
-                      )
-                  : tontine.status === 'ACTIVE'
-                    ? t('tontineDetails.noActiveCycle')
-                    : t('tontineDetails.terminated')}
-              </Text>
-
-              {/* Bouton Démarrer — visible sur dashboard pour organisateur en DRAFT */}
-              {isDraft && isCreator &&
-                members.filter((m) => m.membershipStatus === 'ACTIVE').length >= 2 && (
-                <Pressable
-                  style={[
-                    styles.startTontineBtn,
-                    isActivating && styles.startTontineBtnDisabled,
-                  ]}
-                  onPress={handleActivateTontine}
-                  disabled={isActivating}
-                  accessibilityRole="button"
-                >
-                  {isActivating ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Ionicons name="play-circle-outline" size={24} color="#FFFFFF" />
-                      <Text style={styles.startTontineBtnText}>
-                        Démarrer la tontine
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
-              )}
-
-              {/* Indique à l'organisateur combien de membres manquent */}
-              {isDraft && isCreator &&
-                members.filter((m) => m.membershipStatus === 'ACTIVE').length < 2 && (
-                <View style={styles.startTontineHint}>
-                  <Ionicons name="information-circle-outline" size={18} color="#6B7280" />
-                  <Text style={styles.startTontineHintText}>
-                    {`Il vous faut au moins 2 membres actifs pour démarrer.\n` +
-                     `Actuellement : ${members.filter((m) => m.membershipStatus === 'ACTIVE').length} membre(s).`}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-        </ScrollView>
-      )}
-
-      {activeTab === 'rotation' && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={styles.scrollContentInner}
-        >
-          {isDraft && isCreator && (
-            <View style={styles.rotationManagementSection}>
-              <Text style={styles.sectionTitle}>
-                {t('rotation.managementTitle', 'Ordre de rotation')}
-              </Text>
-              <Pressable
-                style={[styles.rotationActionBtn, shuffleMutation.isPending && styles.btnDisabled]}
-                onPress={handleShuffleRotation}
-                disabled={shuffleMutation.isPending}
-              >
-                {shuffleMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#1A6B3C" />
-                ) : (
-                  <>
-                    <Ionicons name="shuffle" size={22} color="#1A6B3C" />
-                    <Text style={styles.rotationActionText}>
-                      {t('rotation.shuffle', 'Tirage au sort')}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
-              <Pressable
-                style={styles.rotationActionBtn}
-                onPress={() =>
-                  (navigation as { navigate: (n: string, p?: object) => void }).navigate(
-                    'RotationReorderScreen',
-                    { tontineUid }
-                  )
-                }
-              >
-                <Ionicons name="reorder-three" size={22} color="#1A6B3C" />
-                <Text style={styles.rotationActionText}>
-                  {t('rotation.reorder', "Modifier l'ordre")}
-                </Text>
-              </Pressable>
-            </View>
-          )}
-          {isCreator && pendingSwapRequests.length > 0 && (
-            <View style={styles.swapRequestsSection}>
-              <Text style={styles.sectionTitle}>
-                {t('rotation.pendingSwapRequests', 'Demandes d\'échange en attente')}
-              </Text>
-              {pendingSwapRequests.map((req) => {
-                const requesterPos = sortedMembers.find(
-                  (m) => m.userUid === req.requesterUid || m.uid === req.requesterUid
-                )?.rotationOrder;
-                const targetPos = sortedMembers.find(
-                  (m) => m.userUid === req.targetUid || m.uid === req.targetUid
-                )?.rotationOrder;
-                return (
-                <View key={req.uid} style={styles.swapRequestCard}>
-                  <Text style={styles.swapRequestText}>
-                    {req.requesterName} (#{requesterPos ?? '?'}) ↔ {req.targetName} (#{targetPos ?? '?'})
-                  </Text>
-                  <Text style={styles.swapRequestDate}>
-                    {formatDate(req.requestedAt)}
-                  </Text>
-                  <View style={styles.swapRequestActions}>
-                    <Pressable
-                      style={[styles.swapApproveBtn, decideSwapMutation.isPending && styles.btnDisabled]}
-                      onPress={() => {
-                        Alert.alert(
-                          t('rotation.approveConfirmTitle', 'Approuver'),
-                          t('rotation.approveConfirmMessage', 'Échanger les positions de ces deux membres ?'),
-                          [
-                            { text: t('common.cancel'), style: 'cancel' },
-                            {
-                              text: t('common.confirm', 'Confirmer'),
-                              onPress: () =>
-                                decideSwapMutation.mutate({
-                                  requestUid: req.uid,
-                                  payload: { decision: 'APPROVED' },
-                                }),
-                            },
-                          ]
-                        );
-                      }}
-                      disabled={decideSwapMutation.isPending}
-                    >
-                      <Text style={styles.swapApproveText}>{t('common.approve', 'Approuver')}</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.swapRejectBtn, decideSwapMutation.isPending && styles.btnDisabled]}
-                      onPress={() =>
-                        decideSwapMutation.mutate({
-                          requestUid: req.uid,
-                          payload: { decision: 'REJECTED' },
-                        })
-                      }
-                      disabled={decideSwapMutation.isPending}
-                    >
-                      <Text style={styles.swapRejectText}>{t('common.reject', 'Refuser')}</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              );
-              })}
-            </View>
-          )}
-          {canRequestRotationSwap && tontine?.status === 'ACTIVE' && (
-            <View style={styles.swapRequestMemberSection}>
-              {myPendingSwapRequest ? (
-                <View style={styles.pendingSwapBadge}>
-                  <Ionicons name="time" size={20} color="#F5A623" />
-                  <Text style={styles.pendingSwapText}>
-                    {t('rotation.pendingSwapBadge', 'Demande en attente de validation')}
-                  </Text>
-                </View>
-              ) : userHasReceivedBeneficiaryPayout ? (
-                <View>
-                  <Pressable
-                    style={[styles.requestSwapBtn, styles.btnDisabled]}
-                    disabled
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: true }}
-                    accessibilityLabel={t(
-                      'rotation.requestSwapDisabledA11y',
-                      'Échange de position indisponible après tous vos versements bénéficiaires'
-                    )}
-                  >
-                    <Ionicons name="swap-horizontal" size={22} color="#FFFFFF" />
-                    <Text style={styles.requestSwapBtnText}>
-                      {t('rotation.requestSwap', 'Demander un échange de position')}
-                    </Text>
-                  </Pressable>
-                  <Text style={styles.requestSwapDisabledHint}>
-                    {t(
-                      'rotation.requestSwapDisabledAfterPayout',
-                      'Indisponible : vous avez déjà reçu la cagnotte pour tous vos tours en tant que bénéficiaire.'
-                    )}
-                  </Text>
-                </View>
-              ) : (
-                <Pressable
-                  style={styles.requestSwapBtn}
-                  onPress={() =>
-                    (navigation as { navigate: (n: string, p?: object) => void }).navigate(
-                      'SwapRequestScreen',
-                      { tontineUid }
-                    )
-                  }
-                >
-                  <Ionicons name="swap-horizontal" size={22} color="#FFFFFF" />
-                  <Text style={styles.requestSwapBtnText}>
-                    {t('rotation.requestSwap', 'Demander un échange de position')}
-                  </Text>
-                </Pressable>
-              )}
-            </View>
-          )}
-          
-          {tontine.rotationChanged && (
-            <View style={styles.rotationChangedBanner}>
-              <Text style={styles.rotationChangedText}>
-                {t('tontineDetails.rotationChanged')}
-              </Text>
-            </View>
-          )}
-          <Text style={styles.sectionTitle}>
-            {t('tontineDetails.rotationCalendarSectionTitle')}
-          </Text>
-          {!rotationQueryEnabled ? (
-            <Text style={styles.emptyText}>
-              {t('tontineDetails.rotationTabAfterStart')}
-            </Text>
-          ) : rotationLoading ? (
-            <View style={styles.rotationTabLoading}>
-              <ActivityIndicator size="small" color={KELEMBA_GREEN} />
-            </View>
-          ) : rotationError ? (
-            <View style={styles.rotationTabError}>
-              <Text style={styles.rotationTabErrorText}>{t('common.error')}</Text>
-              <Pressable
-                onPress={() => void refetchRotation()}
-                style={styles.rotationTabRetryBtn}
-                accessibilityRole="button"
-              >
-                <Text style={styles.rotationTabRetryText}>
-                  {t('common.retry')}
-                </Text>
-              </Pressable>
-            </View>
-          ) : rotationList.length === 0 ? (
-            <Text style={styles.emptyText}>
-              {t('tontineDetails.rotationTabNoTours')}
-            </Text>
-          ) : (
-            <View style={styles.rotationCalendarBlock}>
-              <RotationStatsHeader
-                totalAmount={rotationTotalAmount}
-                nextTourNumber={nextRotationTourNumber}
-                currentRotation={currentRotationRound}
-              />
-              {isDelayedByOthers && pendingReason ? (
-                <DelayBanner pendingReason={pendingReason} />
-              ) : null}
-              <View style={styles.rotationSectionRow}>
-                <Text style={styles.rotationCalendarSubtitle}>
-                  {t('rotation.calendarTitle')}
-                </Text>
-                <View style={styles.rotationParticipantsBadge}>
-                  <Text style={styles.rotationParticipantsText}>
-                    {t('rotation.participants', { count: rotationMemberCount })}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.rotationTimeline}>
-                {rotationList.map((item, index) => (
-                  <View key={item.uid} style={styles.rotationTimelineRow}>
-                    <View
-                      style={[
-                        styles.rotationTimelineConnector,
-                        index === 0 && styles.rotationTimelineConnectorFirst,
-                      ]}
-                    />
-                    <RotationTimelineItem
-                      cycle={item}
-                      showProgressBar={
-                        item.displayStatus === 'PROCHAIN' && item.totalExpected > 0
-                      }
-                      showRotationBadge={showRotationRoundBadge}
-                    />
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-        </ScrollView>
-      )}
-
-      {activeTab === 'payments' && (
-        <View style={styles.tabContent}>
-          <View style={styles.filterScrollView}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterRow}
-            >
-              {(['all', 'success', 'inProgress', 'failed'] as const).map((f) => (
-              <Pressable
-                key={f}
-                style={[
-                  styles.filterChip,
-                  paymentFilter === f && styles.filterChipActive,
-                ]}
-                onPress={() => setPaymentFilter(f)}
-              >
-                <Text
-                  style={[
-                    styles.filterText,
-                    paymentFilter === f && styles.filterTextActive,
-                  ]}
-                >
-                  {t(`tontineDetails.filter${f.charAt(0).toUpperCase() + f.slice(1)}`)}
-                </Text>
-              </Pressable>
-            ))}
-            </ScrollView>
-          </View>
-          <FlatList
-            data={payments}
-            keyExtractor={(item) => item.uid}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => (
-              <View style={styles.paymentItem}>
-                <View style={styles.paymentHeader}>
-                  <View style={styles.cycleBadge}>
-                    <Text style={styles.cycleBadgeText}>
-                      {t('tontineDetails.cycleLabel')} {item.cycleNumber}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.paymentStatusBadge,
-                      {
-                        backgroundColor:
-                          PAYMENT_STATUS[item.status]?.color ?? '#9E9E9E',
-                      },
-                    ]}
-                  >
-                    <Text style={styles.paymentStatusText}>{item.status}</Text>
-                  </View>
-                </View>
-                <Text style={styles.paymentDate}>
-                  {formatDateTime(item.paidAt)}
-                </Text>
-                <Text style={styles.paymentAmount}>{formatFcfa(item.amount)}</Text>
-                {item.penalty > 0 && (
-                  <Text style={styles.penaltyText}>
-                    + {formatFcfa(item.penalty)} {t('tontineDetails.penalty')}
-                  </Text>
-                )}
-                <View style={styles.paymentMethod}>
-                  {item.method === 'ORANGE_MONEY' && (
-                    <Ionicons name="phone-portrait" size={16} color="#F5A623" />
-                  )}
-                  {item.method === 'TELECEL_MONEY' && (
-                    <Ionicons name="phone-portrait" size={16} color="#0055A5" />
-                  )}
-                  {item.method === 'CASH' && (
-                    <Ionicons name="cash-outline" size={16} color="#1A6B3C" />
-                  )}
-                  {item.method === 'SYSTEM' && (
-                    <Ionicons name="server" size={16} color="#6B7280" />
-                  )}
-                  <Text style={styles.methodText}>
-                    {item.method === 'ORANGE_MONEY'
-                      ? 'Orange Money'
-                      : item.method === 'TELECEL_MONEY'
-                        ? 'Telecel Money'
-                        : item.method === 'CASH'
-                          ? 'Espèces'
-                          : item.method}
-                  </Text>
-                </View>
-              </View>
-            )}
-            ListFooterComponent={
-              hasNextPage ? (
-                <Pressable
-                  style={styles.seeMoreBtn}
-                  onPress={() => fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                >
-                  <Text style={styles.seeMoreText}>
-                    {isFetchingNextPage
-                      ? t('common.loading')
-                      : t('tontineDetails.seeMore')}
-                  </Text>
-                </Pressable>
-              ) : null
-            }
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.primary }} edges={['top']}>
+      <TontineDetailHeader
+        uid={tontineUid}
+        isCreator={isCreator}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        kpiCells={kpiCells}
+        navigation={navigation}
+        t={t}
+      />
+      <View style={{ flex: 1, backgroundColor: COLORS.gray100 }}>
+        {activeTab === 'dashboard' ? (
+          <DashboardTab
+            uid={tontineUid}
+            isCreator={isCreator}
+            onGoToMembersTab={() => setActiveTab('members')}
           />
-        </View>
-      )}
-
-      {activeTab === 'members' && (
-        <FlatList
-          data={sortedMembers}
-          keyExtractor={(item) => item.uid}
-          contentContainerStyle={styles.listContent}
-          ListHeaderComponent={
-            isCreator ? (
-              <View>
-                <Pressable
-                  style={[
-                    styles.inviteMembersBtn,
-                    inviteMembersDisabled && styles.btnDisabled,
-                  ]}
-                  disabled={inviteMembersDisabled}
-                  onPress={() =>
-                    navigation.navigate('InviteMembers', {
-                      tontineUid,
-                      tontineName: tontine.name,
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: inviteMembersDisabled }}
-                  accessibilityLabel={
-                    inviteMembersDisabled
-                      ? t(
-                          'tontineDetails.inviteMembersDisabledA11y',
-                          'Inviter des membres indisponible après le démarrage de la tontine'
-                        )
-                      : t('inviteMembers.inviteButton')
-                  }
-                >
-                  <Ionicons name="person-add" size={20} color="#FFFFFF" />
-                  <Text style={styles.inviteMembersBtnText}>
-                    {t('inviteMembers.inviteButton')}
-                  </Text>
-                </Pressable>
-                {inviteMembersDisabled ? (
-                  <Text style={styles.inviteMembersDisabledHint}>
-                    {t(
-                      'tontineDetails.inviteMembersDisabledAfterStart',
-                      'Les invitations ne sont plus disponibles après le démarrage de la tontine.'
-                    )}
-                  </Text>
-                ) : null}
-              </View>
-            ) : null
-          }
-          renderItem={({ item }) => {
-            const labels = getMemberLabels(item, userUid ?? null);
-            return (
-            <View style={styles.memberCard}>
-              <View style={styles.memberCardHeader}>
-                <View
-                  style={[
-                    styles.avatar,
-                    { backgroundColor: hashToColor(item.fullName) },
-                  ]}
-                >
-                  <Text style={styles.avatarText}>{getInitials(item.fullName)}</Text>
-                </View>
-                <View style={styles.memberCardInfo}>
-                  <Text style={styles.memberCardName}>{item.fullName}</Text>
-                  <Text style={styles.memberCardPosition}>#{item.rotationOrder}</Text>
-                  <Text style={styles.memberCardPhone}>
-                    {maskPhone(item.phone)}
-                  </Text>
-                  <View style={styles.labelRow}>
-                    {labels.map((label) => (
-                      <View
-                        key={label}
-                        style={[
-                          styles.memberLabelPill,
-                          label === 'Organisateur' && styles.labelOrganizer,
-                          label === 'vous' && styles.labelYou,
-                        ]}
-                      >
-                        <Text style={styles.memberLabelText}>
-                          {label === 'Organisateur' ? t('tontineList.organizer') : label}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              </View>
-              <Text style={styles.memberParts}>
-                {item.sharesCount} {t('tontineDetails.parts')}
-              </Text>
-              <ScoreProgressBar
-                label={t('tontineDetails.scoreLabel')}
-                percentage={(item.kelembScore / 1000) * 100}
-              />
-              <Text style={styles.signedText}>
-                {item.signedAt
-                  ? `${t('tontineDetails.signedOn')} ${formatDate(item.signedAt)}`
-                  : t('tontineDetails.notSigned')}
-              </Text>
-              <View style={styles.membershipBadge}>
-                <Text style={styles.membershipText}>{item.membershipStatus}</Text>
-              </View>
-            </View>
-          );
-          }}
-        />
-      )}
-
-      {showCotiserFAB && (
-        <Pressable
-          style={styles.fab}
-          onPress={handleCotiser}
-          accessibilityRole="button"
-          accessibilityLabel={`${t('tontineDetails.contribute')} — ${formatFcfa(totalDue)}`}
-        >
-          <Ionicons name="card-outline" size={22} color="#FFFFFF" />
-          <Text style={styles.fabText}>
-            {t('tontineDetails.contribute')} — {formatFcfa(totalDue)}
-          </Text>
-        </Pressable>
-      )}
-
+        ) : null}
+        {activeTab === 'rotation' ? (
+          <RotationTab uid={tontineUid} isCreator={isCreator} />
+        ) : null}
+        {activeTab === 'payments' ? (
+          <PaymentsTab uid={tontineUid} isCreator={isCreator} />
+        ) : null}
+        {activeTab === 'members' ? (
+          <MembersTab uid={tontineUid} isCreator={isCreator} />
+        ) : null}
+      </View>
       <ErrorToast
         message={toastMessage}
         visible={toastVisible}

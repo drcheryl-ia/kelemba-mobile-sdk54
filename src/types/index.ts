@@ -4,4 +4,5 @@ export * from './notification.types';
 export * from './user.types';
 export * from './payment';
 export * from './tontine';
+export * from './tontine.types';
 export * from './contract';

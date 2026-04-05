@@ -10,9 +10,13 @@ export type NotificationType =
   | 'KYC_UPDATE'
   | 'TONTINE_INVITATION'
   | 'ROTATION_CHANGED'
+  | 'ROTATION_SWAP_REQUESTED'
   | 'PENALTY_APPLIED'
   | 'SCORE_UPDATE'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'CASH_PENDING'
+  | 'SAVINGS_REMINDER'
+  | 'SAVINGS_MATURED';
 
 export type NotificationPriority =
   | 'CRITICAL'
@@ -31,6 +35,9 @@ export interface Notification {
   message: string;
   readAt: string | null;
   createdAt: string;
+  /** Payload JSON (objet ou string sérialisée selon API). */
+  data?: Record<string, unknown> | string | null;
+  archivedAt?: string | null;
 }
 
 export interface NotificationsPage {

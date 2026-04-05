@@ -8,9 +8,9 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,66 +29,20 @@ import { upgradeToOrganizer } from '@/api/usersApi';
 import { parseApiError } from '@/api/errors/errorHandler';
 import { ApiErrorCode } from '@/api/errors/errorCodes';
 import { logger } from '@/utils/logger';
+import { SkeletonPulse } from '@/components/common/SkeletonPulse';
 import {
-  ProfileHeader,
-  ProfileScoreCard,
-  ProfileStatsRow,
-  ProfileSettings,
+  ProfileHeroSection,
+  ProfileStatsStrip,
+  ProfileMenuSection,
+  ScoreHistorySection,
+  PreferencesSection,
+  UpgradeToOrganiserSection,
+  DangerZone,
 } from '@/components/profile';
+import { COLORS } from '@/theme/colors';
 import type { TontineDto } from '@/api/types/api.types';
-import type { KycStatus } from '@/types/user.types';
-import {
-  KYC_STATUS_LABEL_KEYS,
-  KYC_STATUS_MESSAGE_KEYS,
-  KYC_STATUS_SEVERITY,
-} from '@/utils/kyc';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>;
-
-function computeTotalCotise(
-  active: TontineDto[],
-  completed: TontineDto[]
-): number {
-  const all = [...active, ...completed];
-  return all.reduce(
-    (sum, t) => sum + (t.amountPerShare ?? 0) * (t.totalCycles ?? 0),
-    0
-  );
-}
-
-function getKycBannerColors(status: KycStatus): {
-  backgroundColor: string;
-  borderColor: string;
-  titleColor: string;
-  bodyColor: string;
-} {
-  const severity = KYC_STATUS_SEVERITY[status];
-
-  if (severity === 'error') {
-    return {
-      backgroundColor: '#FEE2E2',
-      borderColor: '#FCA5A5',
-      titleColor: '#B91C1C',
-      bodyColor: '#991B1B',
-    };
-  }
-
-  if (severity === 'info') {
-    return {
-      backgroundColor: '#E0F2FE',
-      borderColor: '#7DD3FC',
-      titleColor: '#075985',
-      bodyColor: '#0369A1',
-    };
-  }
-
-  return {
-    backgroundColor: '#FFF7ED',
-    borderColor: '#FDBA74',
-    titleColor: '#C2410C',
-    bodyColor: '#9A3412',
-  };
-}
 
 export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const { t, i18n } = useTranslation();
@@ -102,28 +56,23 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     tontinesActive,
     tontinesCompleted,
     refetchAll,
+    isAnyLoading,
   } = useProfile();
 
   const [language, setLanguage] = useState<'fr' | 'sango'>('fr');
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   const [upgradeModalVisible, setUpgradeModalVisible] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     authStorage.getItem(STORAGE_KEYS.APP_LANGUAGE).then((lang) => {
       if (lang === 'fr' || lang === 'sango') setLanguage(lang);
     });
-    authStorage.getItem(STORAGE_KEYS.NOTIFICATIONS_ENABLED).then((v) => {
-      setNotificationsEnabled(v !== 'false');
-    });
     authStorage.getItem(STORAGE_KEYS.BIOMETRIC_ENABLED).then((v) => {
       setBiometricsEnabled(v === 'true');
     });
   }, []);
-
-  const titleText =
-    i18n.language === 'sango' ? t('profile.titleSango') : t('profile.title');
 
   const handleEditPress = useCallback(() => {
     Alert.alert(t('profile.editComingSoon'));
@@ -138,31 +87,21 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     [i18n]
   );
 
-  const handleNotificationsChange = useCallback(async (value: boolean) => {
-    await authStorage.setItem(STORAGE_KEYS.NOTIFICATIONS_ENABLED, String(value));
-    setNotificationsEnabled(value);
-  }, []);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
+      await queryClient.invalidateQueries({ queryKey: ['score', 'me'] });
+      await queryClient.invalidateQueries({ queryKey: ['tontines', 'active'] });
+      await queryClient.invalidateQueries({ queryKey: ['tontines', 'completed'] });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient]);
 
-  const handleBiometricsChange = useCallback(async (value: boolean) => {
-    await authStorage.setItem(STORAGE_KEYS.BIOMETRIC_ENABLED, String(value));
-    setBiometricsEnabled(value);
-  }, []);
-
-  const handleSecurityPress = useCallback(() => {
-    navigation.navigate('ChangePin');
-  }, [navigation]);
-
-  const handleImproveScorePress = useCallback(() => {
+  const handleSeeAllScore = useCallback(() => {
     navigation.navigate('ScoreHistory');
   }, [navigation]);
-
-  const handleKycBannerPress = useCallback(() => {
-    navigation.navigate('KycUpload', { origin: 'profile' });
-  }, [navigation]);
-
-  const handleUpgradePress = useCallback(() => {
-    setUpgradeModalVisible(true);
-  }, []);
 
   const handleUpgradeConfirm = useCallback(async () => {
     setUpgradeLoading(true);
@@ -236,175 +175,163 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [userProfile?.data?.uid, t]);
 
-  const handleLogout = useCallback(async () => {
-    Alert.alert(
-      t('profile.logoutConfirmTitle'),
-      t('profile.logoutConfirmMessage'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('profile.logout'),
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await unregisterPushDeviceBeforeLogout();
-              await apiClient.post(ENDPOINTS.AUTH.LOGOUT.url);
-            } catch (err: unknown) {
-              logger.error('logout API failed', err);
-            } finally {
-              await authStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-              await authStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-              await authStorage.removeItem(STORAGE_KEYS.ACCOUNT_TYPE);
-              dispatch(clearAuth());
-              queryClient.clear();
-              authEventEmitter.emit('LOGOUT');
-            }
-          },
-        },
-      ]
-    );
-  }, [dispatch, queryClient, t]);
+  const performLogout = useCallback(async () => {
+    try {
+      await unregisterPushDeviceBeforeLogout();
+      await apiClient.post(ENDPOINTS.AUTH.LOGOUT.url);
+    } catch (err: unknown) {
+      logger.error('logout API failed', err);
+    } finally {
+      await authStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+      await authStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+      await authStorage.removeItem(STORAGE_KEYS.ACCOUNT_TYPE);
+      dispatch(clearAuth());
+      queryClient.clear();
+      authEventEmitter.emit('LOGOUT');
+    }
+  }, [dispatch, queryClient]);
 
-  const totalCotise = computeTotalCotise(
-    tontinesActive.data ?? [],
-    tontinesCompleted.data ?? []
-  );
-  const score = scoreData.data?.currentScore ?? 0;
-  const currentKycStatus = userProfile?.data?.kycStatus ?? null;
-  const kycBannerColors =
-    currentKycStatus != null ? getKycBannerColors(currentKycStatus) : null;
-  const kycBannerTitle =
-    currentKycStatus != null ? t(KYC_STATUS_LABEL_KEYS[currentKycStatus]) : null;
-  const kycBannerMessage =
-    currentKycStatus != null ? t(KYC_STATUS_MESSAGE_KEYS[currentKycStatus]) : null;
+  const allTontines: TontineDto[] = [
+    ...(tontinesActive.data ?? []),
+    ...(tontinesCompleted.data ?? []),
+  ];
+
+  const effectiveAccountType = accountType ?? userProfile.data?.accountType;
+  const languageLabel =
+    language === 'fr' ? 'Français' : i18n.language === 'sango' ? 'Sängö' : 'Français';
+
+  const skeletonPulse = 'rgba(255,255,255,0.22)' as const;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>← {titleText}</Text>
-        <Pressable onPress={handleEditPress} hitSlop={8}>
-          <Ionicons name="pencil-outline" size={24} color="#1A1A2E" />
-        </Pressable>
-      </View>
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.white}
+            progressViewOffset={0}
+          />
+        }
       >
-        {score === 0 && (
-          <View style={styles.kycBanner}>
-            <Text style={styles.kycBannerText}>
-              {t('profile.scoreZeroWarning')}
-            </Text>
-          </View>
-        )}
-
-        {userProfile?.data?.kycStatus !== 'VERIFIED' && userProfile?.data && (
-          <Pressable
-            style={[
-              styles.kycBannerCard,
-              {
-                backgroundColor: kycBannerColors?.backgroundColor,
-                borderColor: kycBannerColors?.borderColor,
-              },
-            ]}
-            onPress={handleKycBannerPress}
-          >
-            <Text
-              style={[
-                styles.kycBannerTitle,
-                { color: kycBannerColors?.titleColor },
-              ]}
-            >
-              {kycBannerTitle}
-            </Text>
-            <Text
-              style={[
-                styles.kycBannerBody,
-                { color: kycBannerColors?.bodyColor },
-              ]}
-            >
-              {kycBannerMessage ?? t('profile.kycPending')}
-            </Text>
-          </Pressable>
-        )}
-
-        <ProfileHeader
-          profile={userProfile.data}
-          isLoading={userProfile.isLoading}
-        />
-
-        {(accountType ?? userProfile.data?.accountType) && (
-          <View style={styles.accountTypeSection}>
-            <View
-              style={[
-                styles.accountTypeBadge,
-                (accountType ?? userProfile.data?.accountType) === 'ORGANISATEUR'
-                  ? styles.badgeOrganizer
-                  : styles.badgeMember,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.accountTypeBadgeText,
-                  (accountType ?? userProfile.data?.accountType) === 'ORGANISATEUR'
-                    ? styles.badgeTextOrganizer
-                    : styles.badgeTextMember,
-                ]}
-              >
-                {(accountType ?? userProfile.data?.accountType) === 'ORGANISATEUR'
-                  ? t('profile.accountTypeBadgeOrganizer')
-                  : t('profile.accountTypeBadgeMember')}
-              </Text>
+        {isAnyLoading ? (
+          <>
+            <View style={styles.heroBlock}>
+              <View style={styles.skeletonRow}>
+                <SkeletonPulse
+                  width={64}
+                  height={64}
+                  borderRadius={32}
+                  baseColor={skeletonPulse}
+                />
+                <View style={styles.skeletonTextCol}>
+                  <SkeletonPulse
+                    width="72%"
+                    height={18}
+                    borderRadius={4}
+                    baseColor={skeletonPulse}
+                  />
+                  <SkeletonPulse
+                    width="48%"
+                    height={12}
+                    borderRadius={4}
+                    baseColor={skeletonPulse}
+                  />
+                  <SkeletonPulse
+                    width={112}
+                    height={22}
+                    borderRadius={20}
+                    baseColor={skeletonPulse}
+                  />
+                </View>
+              </View>
+              <SkeletonPulse
+                width="100%"
+                height={90}
+                borderRadius={12}
+                baseColor={skeletonPulse}
+              />
             </View>
-            {(accountType ?? userProfile.data?.accountType) === 'MEMBRE' && (
-              <Pressable
-                onPress={handleUpgradePress}
-                style={styles.upgradeButton}
-              >
-                <Ionicons name="arrow-up-circle-outline" size={22} color="#F5A623" />
-                <Text style={styles.upgradeButtonText}>
-                  {t('profile.upgradeButton')}
-                </Text>
-              </Pressable>
-            )}
-          </View>
+            <View style={styles.statsStripSkeleton}>
+              {[0, 1, 2, 3].map((i) => (
+                <View key={i} style={styles.statsStripCell}>
+                  <SkeletonPulse width="100%" height={52} borderRadius={0} />
+                </View>
+              ))}
+            </View>
+            <View style={[styles.bodyPad, styles.menuSkeletonWrap]}>
+              {[0, 1, 2].map((i) => (
+                <SkeletonPulse
+                  key={i}
+                  width="100%"
+                  height={58}
+                  borderRadius={0}
+                />
+              ))}
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.heroBlock}>
+              <ProfileHeroSection
+                user={userProfile.data}
+                score={scoreData.data}
+                navigation={navigation}
+                onEditProfile={handleEditPress}
+              />
+              <ProfileStatsStrip tontines={allTontines} score={scoreData.data} />
+            </View>
+
+            <View style={styles.bodyPad}>
+              <ProfileMenuSection
+                user={userProfile.data}
+                navigation={navigation}
+                biometricsEnabled={biometricsEnabled}
+              />
+              <ScoreHistorySection
+                score={scoreData.data}
+                tontines={allTontines}
+                onSeeAll={handleSeeAllScore}
+              />
+              <PreferencesSection
+                languageLabel={languageLabel}
+                onLanguagePress={() => {
+                  Alert.alert(
+                    t('profile.language'),
+                    undefined,
+                    [
+                      {
+                        text: 'Français',
+                        onPress: () => {
+                          void handleLanguageChange('fr');
+                        },
+                      },
+                      {
+                        text: 'Sängö',
+                        onPress: () => {
+                          void handleLanguageChange('sango');
+                        },
+                      },
+                      { text: t('common.cancel'), style: 'cancel' },
+                    ]
+                  );
+                }}
+                onReportsPress={handleDownloadPdf}
+              />
+              {effectiveAccountType === 'MEMBRE' ? (
+                <UpgradeToOrganiserSection
+                  onContinue={() => {
+                    setUpgradeModalVisible(true);
+                  }}
+                />
+              ) : null}
+              <DangerZone onLogout={performLogout} />
+            </View>
+          </>
         )}
-
-        <ProfileScoreCard
-          userProfile={userProfile.data}
-          scoreData={scoreData.data}
-          isLoading={scoreData.isLoading}
-          onImproveScorePress={handleImproveScorePress}
-        />
-
-        <ProfileStatsRow
-          totalCotise={totalCotise}
-          tontinesTerminees={tontinesCompleted.total}
-          tontinesActives={tontinesActive.total}
-          isLoading={tontinesActive.isLoading && tontinesCompleted.isLoading}
-        />
-
-        <ProfileSettings
-          language={language}
-          onLanguageChange={handleLanguageChange}
-          notificationsEnabled={notificationsEnabled}
-          onNotificationsChange={handleNotificationsChange}
-          biometricsEnabled={biometricsEnabled}
-          onBiometricsChange={handleBiometricsChange}
-          onSecurityPress={handleSecurityPress}
-        />
-
-        <Pressable style={styles.pdfButton} onPress={handleDownloadPdf}>
-          <Ionicons name="document-text-outline" size={22} color="#1A6B3C" />
-          <Text style={styles.pdfButtonText}>{t('profile.downloadPdf')}</Text>
-        </Pressable>
-
-        <Pressable style={styles.logoutButton} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={22} color="#D0021B" />
-          <Text style={styles.logoutButtonText}>{t('profile.logout')}</Text>
-        </Pressable>
       </ScrollView>
 
       <Modal
@@ -450,134 +377,50 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1A1A2E',
+    backgroundColor: COLORS.primary,
   },
   scroll: {
     flex: 1,
+    backgroundColor: COLORS.gray100,
   },
   scrollContent: {
-    paddingBottom: 100, // 64 tab height + 20 margin + 16 safe area
+    paddingBottom: 80,
+    flexGrow: 1,
   },
-  kycBanner: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: '#FFEBEE',
-    borderRadius: 12,
+  heroBlock: {
+    backgroundColor: COLORS.primary,
+    paddingBottom: 0,
   },
-  kycBannerText: {
-    fontSize: 14,
-    color: '#D0021B',
-    textAlign: 'center',
-  },
-  kycBannerCard: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 4,
-  },
-  kycBannerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  kycBannerBody: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  pdfButton: {
+  skeletonRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: 14,
+    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingTop: 0,
+  },
+  skeletonTextCol: {
+    flex: 1,
     gap: 8,
-    marginHorizontal: 20,
-    marginTop: 24,
-    paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#1A6B3C',
+    marginTop: 4,
   },
-  pdfButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1A6B3C',
-  },
-  logoutButton: {
+  statsStripSkeleton: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: COLORS.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.gray200,
+  },
+  statsStripCell: {
+    flex: 1,
+    height: 52,
+  },
+  bodyPad: {
+    backgroundColor: COLORS.gray100,
+    padding: 16,
+    gap: 0,
+  },
+  menuSkeletonWrap: {
     gap: 8,
-    marginHorizontal: 20,
-    marginTop: 12,
-    paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#D0021B',
-  },
-  logoutButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#D0021B',
-  },
-  accountTypeSection: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    gap: 12,
-  },
-  accountTypeBadge: {
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  badgeMember: {
-    backgroundColor: '#1A6B3C',
-  },
-  badgeOrganizer: {
-    backgroundColor: '#F5A623',
-  },
-  accountTypeBadgeText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  badgeTextMember: {
-    color: '#FFFFFF',
-  },
-  badgeTextOrganizer: {
-    color: '#1C1C1E',
-  },
-  upgradeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#F5A623',
-    minHeight: 48,
-  },
-  upgradeButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#F5A623',
   },
   modalOverlay: {
     flex: 1,

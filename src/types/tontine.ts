@@ -81,6 +81,9 @@ export interface TontineDetail {
   createdAt: string;
   isCreator?: boolean;
   canInvite?: boolean;
+  /** Clôture automatique ou manuelle — renseigné quand status === COMPLETED */
+  closedAt?: string | null;
+  closureType?: string | null;
 }
 
 export interface TontineReportCycle {
@@ -211,6 +214,10 @@ export interface TontineListItem {
   savingsWithdrawalAvailable?: boolean | null;
   /** Période courante épargne (liste GET /v1/savings) — navigation versement */
   savingsCurrentPeriodUid?: string | null;
+  /** Total cotisé par le membre sur la tontine (récap clôture) si exposé par l’API */
+  memberTotalContributed?: number | null;
+  /** Ponctualité % sur cette tontine si exposé */
+  tontinePunctualityRate?: number | null;
 }
 
 export type RotationType = 'RANDOM' | 'MANUAL';

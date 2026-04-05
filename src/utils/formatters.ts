@@ -1,13 +1,33 @@
+const fcfaFormatter = new Intl.NumberFormat('fr-FR', {
+  style: 'decimal',
+  maximumFractionDigits: 0,
+});
+
+function formatFcfaNumber(amount: number): string {
+  return fcfaFormatter.format(Math.round(amount));
+}
+
 /**
- * Formateurs FCFA (XAF) — montants entiers, pas de centimes.
- * Tolère null/undefined / NaN (réponses API partielles) pour éviter un crash sur toLocaleString.
+ * Formate un entier FCFA avec espace insécable comme séparateur de milliers.
+ * Ex: 10000 → "10 000 FCFA" · 500 → "500 FCFA"
+ * Jamais de décimaux — montants FCFA sont des entiers.
+ * Tolère null/undefined / NaN (réponses API partielles).
  */
-export const formatFcfa = (amount: number | null | undefined): string => {
+export function formatFcfa(amount: number | null | undefined): string {
   if (amount == null) return '—';
   const n = typeof amount === 'number' ? amount : Number(amount);
   if (!Number.isFinite(n)) return '—';
-  return `${n.toLocaleString('fr-FR')} FCFA`;
-};
+  return `${formatFcfaNumber(n)} FCFA`;
+}
+
+/**
+ * Formate un entier FCFA sans l'unité (pour les affichages en 2 lignes).
+ * Ex: 10000 → "10 000"
+ */
+export function formatFcfaAmount(amount: number): string {
+  if (!Number.isFinite(amount)) return '—';
+  return formatFcfaNumber(amount);
+}
 
 export const parseFcfa = (value: string): number => {
   const cleaned = value.replace(/\s|FCFA|XAF/gi, '').replace(/\s/g, '').replace(',', '.');
@@ -39,3 +59,11 @@ export const formatPhoneSafe = (value?: string | null): string => {
   const trimmed = value.trim();
   return trimmed || 'Numéro indisponible';
 };
+
+/** Progression cycle : fraction 0–1 ou pourcentage 0–100 → 0–100 pour barre / affichage. */
+export function toProgressPct(fraction: number | null | undefined): number {
+  if (fraction == null || !Number.isFinite(Number(fraction))) return 0;
+  const n = Number(fraction);
+  if (n <= 1) return Math.min(100, Math.round(n * 100));
+  return Math.min(100, Math.round(n));
+}
